@@ -13,7 +13,7 @@ Refactor Lexicon CLI using a "one feature at a time" implementation and verifica
 - [x] **[Core-Loaders]**: Implementation of `TSVParser` and `WordFreqParser`.
 - [x] **[Sub-commanding]**: Isolation of `dict` and `ids` commands.
 - [x] **[Filtering]**: Parametric filtering (rank, tag, len) for `dict` source.
-- [ ] **[Next: Config]**: Implement `config-manager` for persistent defaults (e.g., default output format).
+- [x] **[Config]**: Implement `config-manager` for persistent defaults (e.g., default output format).
 - [ ] **[Next: Completion]**: Implement `auto-completion-engine` for millisecond-level prefix matching.
 - [ ] **[Next: Interop]**: Refine `ndjson-output` and pipe-stream integration for all sub-commands.
 

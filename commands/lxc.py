@@ -6,13 +6,27 @@ import sys
 import re
 from pathlib import Path
 
-# Standard DB path
+# Standard DB and Config paths
 DB_PATH = os.path.expanduser("~/.lexicon.db")
+CONFIG_PATH = os.path.expanduser("~/.lexicon.json")
+
+class ConfigManager:
+    @staticmethod
+    def load():
+        if os.path.exists(CONFIG_PATH):
+            with open(CONFIG_PATH, 'r') as f:
+                return json.load(f)
+        return {"output": "show", "limit": 10}
+
+    @staticmethod
+    def save(config):
+        with open(CONFIG_PATH, 'w') as f:
+            json.dump(config, f, indent=2)
 
 SUPPORTED_FEATURES = [
     "fts-engine", "pipe-stream", "unified-output-protocol", 
     "sub-command-isolation", "direct-sql", "doctor-stat",
-    "schema-reflection", "shell-completion-manager"
+    "schema-reflection", "shell-completion-manager", "config-manager"
 ]
 
 class LexiconStore:
@@ -129,11 +143,15 @@ def init(sources_dir, clear):
 @cli.command()
 @click.argument('query', required=False)
 @click.option('--stdin', is_flag=True, help='Read from stdin')
-@click.option('--output', '-o', type=click.Choice(['show', 'json', 'stream', 'plain']), default='show')
+@click.option('--output', '-o', type=click.Choice(['show', 'json', 'stream', 'plain']), help='Output mode')
 @click.option('--field', '-f', multiple=True, help='Filter specific fields')
-@click.option('--limit', default=10)
+@click.option('--limit', type=int)
 def search(query, stdin, output, field, limit):
     """Global search across all sources with pipe support."""
+    cfg = ConfigManager.load()
+    output = output or cfg.get('output', 'show')
+    limit = limit or cfg.get('limit', 10)
+    
     if is_headless() and output == 'show': output = 'stream'
     store = LexiconStore()
     cursor = store.conn.cursor()
@@ -210,7 +228,7 @@ def features(status):
     click.echo("")
 
 @cli.command()
-@click.argument('statement')
+@click.argument('query')
 def sql(statement):
     """Direct SQL access."""
     store = LexiconStore()
@@ -221,6 +239,34 @@ def sql(statement):
             click.echo(json.dumps(dict(row), ensure_ascii=False))
     except Exception as e: click.secho(f"Error: {e}", fg='red')
     finally: store.close()
+
+@cli.group()
+def config_cmd():
+    """[UX] Manage persistent defaults."""
+    pass
+
+@config_cmd.command(name='set')
+@click.argument('key')
+@click.argument('value')
+def config_set(key, value):
+    """Set a configuration value."""
+    cfg = ConfigManager.load()
+    if key == 'limit': value = int(value)
+    cfg[key] = value
+    ConfigManager.save(cfg)
+    click.secho(f"✅ Set {key}={value}", fg='green')
+
+@config_cmd.command(name='get')
+@click.argument('key', required=False)
+def config_get(key):
+    """Get configuration value(s)."""
+    cfg = ConfigManager.load()
+    if key:
+        click.echo(cfg.get(key, "Not set"))
+    else:
+        click.echo(json.dumps(cfg, indent=2))
+
+cli.add_command(config_cmd, name='config')
 
 @cli.group()
 def completion():
@@ -283,9 +329,11 @@ def dict_cmd():
 @click.argument('query', required=False)
 @click.option('--rank-min', type=int)
 @click.option('--tag')
-@click.option('--limit', default=20)
+@click.option('--limit', type=int)
 def dict_search(query, rank_min, tag, limit):
     """Search dictionary with rank and tag filters."""
+    cfg = ConfigManager.load()
+    limit = limit or cfg.get('limit', 20)
     store = LexiconStore()
     conds = []
     params = []
