@@ -1,0 +1,1 @@
+# Track: Multi-dimensional Filter Engine\n\n实现强大的数字区间与标签过滤逻辑。\n\n## Tasks\n- [x] 实现 `RangeParser` 支持 `1-`, `-20`, `1-5` 等格式\n- [x] 集成 `--rank` 和 `--len` 过滤到 `search` 命令\n- [x] 实现动态 `tag` 补全逻辑与 `--no-tag` 排除过滤\n- [x] 支持通过 `config` 设置过滤默认值
