@@ -55,6 +55,22 @@ def cli():
     pass
 
 @cli.command()
+def features():
+    """Display supported features and capabilities."""
+    # This manifest is injected by the factory during generation
+    manifest = [
+        {"label": "FTS5 全文索引", "status": "supported", "desc": "基于 SQLite FTS5 的高性能搜索。"},
+        {"label": "Unix 管道流", "status": "supported", "desc": "支持 stdin/stdout 管道处理。"},
+        {"label": "NDJSON 输出", "status": "supported", "desc": "单行 JSON，兼容 jq。"},
+        {"label": "Shell 自动补全", "status": "supported", "desc": "支持 tab 补全（即将安装）。"},
+    ]
+    click.secho(f"\n🚀 {{ tool_id }} Feature Matrix\n", fg='cyan', bold=True)
+    for item in manifest:
+        status_icon = "✅" if item['status'] == 'supported' else "⚪"
+        click.echo(f" {status_icon} {item['label']:<20} - {item['desc']}")
+    click.echo("")
+
+@cli.command()
 @click.argument('query', required=False)
 @click.option('--stdin', is_flag=True, help='Read from stdin')
 @click.option('--output', '-o', type=click.Choice(['view', 'json', 'plain', 'stream']), default='view')

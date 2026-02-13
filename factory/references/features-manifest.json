@@ -1,0 +1,164 @@
+[
+  {
+    "id": "fts-engine",
+    "category": "Core / Retrieval",
+    "label": "FTS5 全文索引",
+    "description": "基于 SQLite FTS5 的高性能搜索，支持虚列映射。",
+    "status": "mandatory",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "search",
+      "flags": [
+        "--limit",
+        "--field"
+      ]
+    }
+  },
+  {
+    "id": "pipe-stream",
+    "category": "Core / Flow",
+    "label": "Unix 管道流",
+    "description": "支持从 stdin 读取查询，并支持结果管道输出。",
+    "status": "mandatory",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "search",
+      "flags": [
+        "--stdin"
+      ]
+    }
+  },
+  {
+    "id": "ndjson-output",
+    "category": "Core / Interop",
+    "label": "NDJSON 输出",
+    "description": "输出为单行 JSON，兼容 jq 等下游处理工具。",
+    "status": "mandatory",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "search",
+      "flags": [
+        "-o stream",
+        "-o json"
+      ]
+    }
+  },
+  {
+    "id": "multi-layer-dedup",
+    "category": "Data / Governance",
+    "label": "多层去重逻辑",
+    "description": "在 init 时基于字段指纹自动去重。",
+    "status": "recommended",
+    "trigger": {
+      "type": "conflict_risk",
+      "condition": "duplicate_keys"
+    },
+    "cli_integration": {
+      "command": "init",
+      "flags": [
+        "--dedup"
+      ]
+    }
+  },
+  {
+    "id": "rank-sorting",
+    "category": "Enhancement / Retrieval",
+    "label": "热度权重排序",
+    "description": "利用 rank/ 目录或热度字段进行排序优化。",
+    "status": "recommended",
+    "trigger": {
+      "type": "field_check",
+      "pattern": "^(rank|freq|count|hot|weight)$"
+    },
+    "cli_integration": {
+      "command": "search",
+      "flags": [
+        "--sort"
+      ]
+    }
+  },
+  {
+    "id": "shell-completion",
+    "category": "UX / Efficiency",
+    "label": "Shell 自动补全",
+    "description": "自动安装 bash/zsh 补全脚本。",
+    "status": "mandatory",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "completion",
+      "flags": [
+        "install"
+      ]
+    }
+  },
+  {
+    "id": "interactive-pick",
+    "category": "UX / Discovery",
+    "label": "随机灵感捡拾",
+    "description": "pick 命令，随机返回高质量词条。",
+    "status": "optional",
+    "trigger": {
+      "type": "volume_check",
+      "min_records": 1000
+    },
+    "cli_integration": {
+      "command": "pick",
+      "flags": [
+        "--count"
+      ]
+    }
+  },
+  {
+    "id": "doctor-stat",
+    "category": "Maintenance",
+    "label": "健康诊断仪",
+    "description": "检查 DB 完整性、索引碎片率及数据统计。",
+    "status": "mandatory",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "doctor",
+      "flags": []
+    }
+  },
+  {
+    "id": "schema-reflection",
+    "category": "Core / Transparency",
+    "label": "Schema 自省",
+    "description": "动态输出当前底层数据库的字段定义。",
+    "status": "mandatory",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "schema",
+      "flags": []
+    }
+  },
+  {
+    "id": "batch-loader",
+    "category": "Data / Build",
+    "label": "工业级加载器",
+    "description": "支持多线程从大规模碎片 JSON 加载数据。",
+    "status": "recommended",
+    "trigger": {
+      "type": "source_pattern",
+      "pattern": ".*\\.json$"
+    },
+    "cli_integration": {
+      "command": "init",
+      "flags": [
+        "--batch-size"
+      ]
+    }
+  }
+]
