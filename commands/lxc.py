@@ -27,7 +27,7 @@ SUPPORTED_FEATURES = [
     "fts-engine", "pipe-stream", "unified-output-protocol", 
     "sub-command-isolation", "direct-sql", "doctor-stat",
     "schema-reflection", "shell-completion-manager", "config-manager",
-    "auto-completion-engine", "interactive-pick"
+    "auto-completion-engine", "interactive-pick", "cross-ref-join"
 ]
 
 class LexiconStore:
@@ -67,23 +67,27 @@ def format_output(row, mode, source_id=None, fields=None):
     if mode in ['json', 'stream']:
         click.echo(json.dumps(data, ensure_ascii=False))
     elif mode == 'plain':
-        # Pure values for unix tools like awk/cut
-        click.echo(" ".join([str(v) for v in data.values()]))
+        click.echo(" ".join([str(v) for k, v in data.items() if not k.startswith('_')]))
     else: # mode == 'show' (Default)
-        # Standard View with rich formatting
         color = 'cyan' if source_id == 'ids' else 'green'
         label = click.style(f"[{source_id}]", fg='white', dim=True) if source_id else ""
         
-        # Primary key identification
         pk = data.get('term') or data.get('char') or list(data.values())[0]
         click.secho(f"{label}【{pk}】", fg=color, bold=True, nl=False)
         
-        # Detail formatting
-        vals = [str(v) for k, v in data.items() if k not in ['term', 'char', '_source', 'pk']]
+        vals = [str(v) for k, v in data.items() if k not in ['term', 'char', '_source', 'pk'] and not k.startswith('_')]
         if vals:
             click.echo(f"  " + click.style(" | ", fg='white', dim=True).join(vals))
         else:
             click.echo("")
+            
+        # Handle Joined data
+        if '_joined' in data:
+            for item in data['_joined']:
+                j_label = click.style(f"  └── [Join:{item.get('_source', '?')}]", fg='yellow', dim=True)
+                j_pk = item.get('char') or item.get('term') or "?"
+                j_vals = [str(v) for k, v in item.items() if k not in ['char', 'term', '_source'] and not k.startswith('_')]
+                click.echo(f"{j_label} 【{j_pk}】 {' | '.join(j_vals)}")
 
 @click.group()
 def cli():
@@ -114,8 +118,7 @@ def init(sources_dir, clear):
         cursor.execute("CREATE TABLE comp_dict (term TEXT PRIMARY KEY, freq INTEGER)")
         
         with open(dict_path, 'r', encoding='utf-8') as f:
-            batch = []
-            comp_batch = []
+            batch, comp_batch = [], []
             for line in f:
                 parts = line.strip().split()
                 if len(parts) >= 2:
@@ -157,8 +160,9 @@ def init(sources_dir, clear):
 @click.option('--stdin', is_flag=True, help='Read from stdin')
 @click.option('--output', '-o', type=click.Choice(['show', 'json', 'stream', 'plain']), help='Output mode')
 @click.option('--field', '-f', multiple=True, help='Filter specific fields')
+@click.option('--join', '-j', help='Join related info from another source (e.g. ids)')
 @click.option('--limit', type=int)
-def search(query, stdin, output, field, limit):
+def search(query, stdin, output, field, join, limit):
     """Global search across all sources with pipe support."""
     cfg = ConfigManager.load()
     output = output or cfg.get('output', 'show')
@@ -175,8 +179,27 @@ def search(query, stdin, output, field, limit):
             pk_col = 'term' if s_id == 'dict' else 'char'
             try:
                 cursor.execute(f"SELECT * FROM {table} WHERE {pk_col} MATCH ? LIMIT ?", (f"{q}*", limit))
-                for row in cursor:
+                rows = [dict(r) for r in cursor.fetchall()]
+                
+                # Cross-ref join logic
+                if join == 'ids' and s_id == 'dict':
+                    for row in rows:
+                        term = row.get('term', '')
+                        chars = list(term) # Support multi-char words
+                        joined_data = []
+                        for c in chars:
+                            cursor.execute("SELECT * FROM source_ids WHERE char = ?", (c,))
+                            j_res = cursor.fetchone()
+                            if j_res:
+                                j_dict = dict(j_res)
+                                j_dict['_source'] = 'ids'
+                                joined_data.append(j_dict)
+                        if joined_data:
+                            row['_joined'] = joined_data
+                
+                for row in rows:
                     format_output(row, output, source_id=s_id, fields=field)
+                    
             except sqlite3.OperationalError:
                 continue
     store.close()
@@ -195,7 +218,6 @@ def schema():
     click.secho("\n📂 Lexicon Schema Reflection\n", fg='cyan', bold=True)
     for name, sql in cursor:
         click.secho(f" Table: {name}", fg='green', bold=True)
-        # Extract columns from FTS5 SQL
         cols_match = re.search(r'\((.*)\)', sql)
         if cols_match:
             cols = [c.strip() for c in cols_match.group(1).split(',')]
@@ -225,17 +247,10 @@ def features(status):
         f_status = 'ok' if f_id in SUPPORTED_FEATURES else (
             'miss' if feat.get('status') == 'mandatory' else 'opt'
         )
-        
-        if status and f_status != status:
-            continue
-
-        if f_status == 'ok':
-            status_text = click.style("✅ OK", fg='green')
-        elif f_status == 'miss':
-            status_text = click.style("❌ MISSING", fg='red')
-        else:
-            status_text = click.style("⚪ OPT", fg='yellow')
-            
+        if status and f_status != status: continue
+        status_text = click.style("✅ OK", fg='green') if f_status == 'ok' else (
+            click.style("❌ MISSING", fg='red') if f_status == 'miss' else click.style("⚪ OPT", fg='yellow')
+        )
         click.echo(f" {status_text:<19} | {feat['label']:<20} | {feat['description']}")
     click.echo("")
 
@@ -319,7 +334,6 @@ def completion():
 @click.option('--shell', type=click.Choice(['bash', 'zsh']), default='zsh')
 def completion_show(shell):
     """Show the shell completion script."""
-    # Force the script to generate for 'lxc' regardless of how it's called
     env = os.environ.copy()
     env[f"_LXC_COMPLETE"] = f"{shell}_source"
     import subprocess
@@ -345,14 +359,11 @@ def completion_install():
     if not profile_path:
         click.secho("❌ Could not detect shell profile (bash/zsh).", fg='red')
         return
-
     if not os.path.exists(profile_path):
         click.secho(f"❌ Profile {profile_path} not found.", fg='red')
         return
-
     with open(profile_path, 'r') as f:
         content = f.read()
-    
     if eval_line in content:
         click.secho(f"✨ Completion already installed in {profile_path}", fg='yellow')
     else:
@@ -377,22 +388,18 @@ def dict_search(query, rank_min, tag, limit):
     cfg = ConfigManager.load()
     limit = limit or cfg.get('limit', 20)
     store = LexiconStore()
-    conds = []
-    params = []
+    conds, params = [], []
     if query: conds.append("term MATCH ?"); params.append(f"{query}*")
     if rank_min: conds.append("CAST(freq AS INTEGER) >= ?"); params.append(rank_min)
     if tag: conds.append("tag = ?"); params.append(tag)
-    
     sql_q = "SELECT * FROM source_dict"
     if conds: sql_q += " WHERE " + " AND ".join(conds)
     sql_q += f" ORDER BY CAST(freq AS INTEGER) DESC LIMIT {limit}"
-    
     cursor = store.conn.cursor()
     cursor.execute(sql_q, params)
     for row in cursor: format_output(row, 'view', 'dict')
     store.close()
 
-# Rename sub-command group for clean CLI
 cli.add_command(dict_cmd, name='dict')
 
 @cli.command()
