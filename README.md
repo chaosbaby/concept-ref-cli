@@ -22,6 +22,16 @@
 *   **查找词语**: `xh ci "代码"`
 *   **全局搜索**: `xh search "文化"`
 
+### 3. `lexicon` (词库引擎)
+标准化的 Unix 风格词库工具，提供词频、语义码及字形构件。
+
+*   **初始化**: `lexicon init`
+*   **搜词**: `lexicon search "逻辑"` (包含词频与同义词林语义码)
+*   **拆字**: `lexicon atoms "德"` (输出构件如 `⿰彳𢛳`)
+*   **溯源**: `lexicon find "彳"` (查找包含特定构件的所有高频字)
+*   **流处理**: `lexicon stream --limit 100` (输出 NDJSON 供管道调用)
+
+
 ## 开发与扩展
 
 ### Concept CLI Factory
