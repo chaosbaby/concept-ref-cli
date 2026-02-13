@@ -10,10 +10,7 @@
     },
     "cli_integration": {
       "command": "search",
-      "flags": [
-        "--limit",
-        "--field"
-      ]
+      "flags": ["--limit", "--field"]
     }
   },
   {
@@ -27,27 +24,36 @@
     },
     "cli_integration": {
       "command": "search",
-      "flags": [
-        "--stdin",
-        "-"
-      ]
+      "flags": ["--stdin", "-"]
     }
   },
   {
-    "id": "ndjson-output",
+    "id": "unified-output-protocol",
     "category": "Interop",
-    "label": "NDJSON 输出",
-    "description": "兼容 jq 等工具的单行 JSON 输出。",
+    "label": "标准输出协议",
+    "description": "支持 show(精装), plain(原味), json(结构化) 三大模式。",
     "status": "mandatory",
     "trigger": {
       "type": "always"
     },
     "cli_integration": {
       "command": "search",
-      "flags": [
-        "-o stream",
-        "-o json"
-      ]
+      "flags": ["-o show", "-o plain", "-o json"]
+    }
+  },
+  {
+    "id": "rich-render-engine",
+    "category": "UX",
+    "label": "智能排版引擎",
+    "description": "根据数据内容（如诗词、长文）自动触发垂直排版或分段。",
+    "status": "recommended",
+    "trigger": {
+      "type": "field_check",
+      "pattern": "^(content|text|desc|fulltext|poem)$"
+    },
+    "cli_integration": {
+      "command": "search",
+      "flags": ["-o show"]
     }
   },
   {
@@ -61,9 +67,7 @@
     },
     "cli_integration": {
       "command": "<source>",
-      "flags": [
-        "search"
-      ]
+      "flags": ["search"]
     }
   },
   {
@@ -78,61 +82,21 @@
     },
     "cli_integration": {
       "command": "dict",
-      "flags": [
-        "--rank-min",
-        "--len-min",
-        "--tag"
-      ]
+      "flags": ["--rank-min", "--len-min", "--tag"]
     }
   },
   {
-    "id": "multi-layer-dedup",
-    "category": "Data",
-    "label": "多层去重",
-    "description": "在加载时基于指纹自动去重。",
-    "status": "recommended",
-    "trigger": {
-      "type": "conflict_risk",
-      "condition": "duplicate_keys"
-    },
-    "cli_integration": {
-      "command": "init",
-      "flags": [
-        "--dedup"
-      ]
-    }
-  },
-  {
-    "id": "rank-sorting",
-    "category": "Retrieval",
-    "label": "权重智能排序",
-    "description": "根据热度字段自动优化结果顺序。",
-    "status": "recommended",
-    "trigger": {
-      "type": "field_check",
-      "pattern": "^(rank|freq|hot)$"
-    },
-    "cli_integration": {
-      "command": "search",
-      "flags": [
-        "--sort"
-      ]
-    }
-  },
-  {
-    "id": "shell-completion",
+    "id": "shell-completion-manager",
     "category": "UX",
-    "label": "Shell 自动补全",
-    "description": "支持 Bash/Zsh 的 Tab 键补全。",
+    "label": "补全管理器",
+    "description": "提供 show (源码展示) 和 install (自动注入) 功能。",
     "status": "mandatory",
     "trigger": {
       "type": "always"
     },
     "cli_integration": {
       "command": "completion",
-      "flags": [
-        "install"
-      ]
+      "flags": ["show", "install"]
     }
   },
   {
@@ -147,40 +111,6 @@
     "cli_integration": {
       "command": "sql",
       "flags": []
-    }
-  },
-  {
-    "id": "config-manager",
-    "category": "UX",
-    "label": "配置管理",
-    "description": "持久化用户默认参数。",
-    "status": "optional",
-    "trigger": {
-      "type": "always"
-    },
-    "cli_integration": {
-      "command": "config",
-      "flags": [
-        "set",
-        "get"
-      ]
-    }
-  },
-  {
-    "id": "interactive-pick",
-    "category": "UX",
-    "label": "随机灵感捡拾",
-    "description": "随机返回高质量词条。",
-    "status": "optional",
-    "trigger": {
-      "type": "volume_check",
-      "min_records": 1000
-    },
-    "cli_integration": {
-      "command": "pick",
-      "flags": [
-        "--count"
-      ]
     }
   },
   {
@@ -223,23 +153,7 @@
     },
     "cli_integration": {
       "command": "init",
-      "flags": [
-        "--batch-size"
-      ]
-    }
-  },
-  {
-    "id": "auto-completion-engine",
-    "category": "UX",
-    "label": "补全引擎",
-    "description": "毫秒级前缀匹配补全。",
-    "status": "recommended",
-    "trigger": {
-      "type": "always"
-    },
-    "cli_integration": {
-      "command": "complete",
-      "flags": []
+      "flags": ["--batch-size"]
     }
   }
 ]

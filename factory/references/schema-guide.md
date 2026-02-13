@@ -26,3 +26,25 @@
     PRAGMA synchronous = OFF;
     PRAGMA journal_mode = MEMORY;
     ```
+
+## CLI 交互标准 (The Gold Standards)
+
+### 1. 核心输出模式 (Output Modes)
+所有 Factory 生成的工具必须支持以下四种输出模式：
+- **`show` (默认)**: 面向人类。支持 ANSI 颜色、加粗。对于诗词、长文等特殊数据源，应触发专用排版。
+- **`plain`**: 面向管道工具（如 `awk`, `cut`）。仅输出空格分隔的数据值，无装饰。
+- **`json` / `stream`**: 面向程序。单行 NDJSON 格式，兼容 `jq`。
+
+### 2. 补全管理 (Completion)
+必须提供 `completion` 子命令组：
+- `show`: 打印对应 Shell 的补全脚本。
+- `install`: 自动识别 Shell 环境并注入 `eval` 语句到用户配置（需确认）。
+
+### 3. 特性自省 (Features)
+`features` 命令应支持状态过滤：
+- `--status ok`: 显示已实现的工业级特性。
+- `--status miss`: 显示尚未实现的强制特性（Roadmap）。
+- `--status opt`: 显示可选特性。
+
+### 4. 管道流协议 (Pipe-Stream)
+`search` 指令必须支持 `stdin` 作为输入源（通常使用 `-` 参数或 `--stdin` 标志）。
