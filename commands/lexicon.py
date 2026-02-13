@@ -20,11 +20,27 @@ def log(msg, fg=None, bold=False):
     if not is_headless():
         click.secho(msg, fg=fg, bold=bold, err=True)
 
-def echo_data(data):
-    if is_headless():
+def format_output(row, mode, fields=None):
+    data = dict(row)
+    if fields:
+        data = {k: v for k, v in data.items() if k in fields}
+    
+    if mode == 'json':
         click.echo(json.dumps(data, ensure_ascii=False))
-    else:
-        click.echo(json.dumps(data, indent=2, ensure_ascii=False))
+    elif mode == 'stream':
+        click.echo(json.dumps(data, ensure_ascii=False))
+    elif mode == 'plain':
+        click.echo(" ".join([str(v) for v in data.values()]))
+    else: # 'view'
+        click.secho(f"【{data.get('pk', '')}】", fg='cyan', nl=False)
+        click.echo(f" {data.get('desc', '')} (Rank: {data.get('val', 0)})")
+
+def get_input_stream(query, stdin_flag):
+    if query == '-' or stdin_flag:
+        for line in sys.stdin:
+            yield line.strip()
+    elif query:
+        yield query
 
 @click.group()
 def cli():
@@ -35,7 +51,7 @@ def cli():
 @click.option('--sources-dir', default='sources/lexicon', help='Directory containing raw txt files')
 @click.option('--clear', is_flag=True, help='Clear existing database')
 def init(sources_dir, clear):
-    """Initialize the lexicon database from raw sources."""
+    """Initialize the lexicon database with FTS5 and Virtual Columns."""
     if clear and os.path.exists(DB_PATH):
         os.remove(DB_PATH)
 
@@ -44,177 +60,130 @@ def init(sources_dir, clear):
     cursor.execute("PRAGMA synchronous = OFF")
     cursor.execute("PRAGMA journal_mode = WAL")
 
-    log("🏗️  Creating tables...", fg='cyan')
+    log("🏗️  Creating FTS5 tables...", fg='cyan')
     
-    # 1. Dictionary Table (Words & Freq)
-    cursor.execute("DROP TABLE IF EXISTS dictionary")
-    cursor.execute("""
-        CREATE TABLE dictionary (
-            term TEXT PRIMARY KEY,
-            frequency INTEGER DEFAULT 0,
-            tag TEXT,
-            semantic_codes TEXT
-        )
-    """)
+    # Unified Search Table (FTS5)
+    # pk: word/char, desc: components/semantic, tags: word-tag/semantic-code, val: freq
+    cursor.execute("DROP TABLE IF EXISTS entries")
+    cursor.execute("CREATE VIRTUAL TABLE entries USING fts5(pk, desc, tags, val, source UNINDEXED)")
     
-    # 2. Atoms Table (Characters & Components)
-    cursor.execute("DROP TABLE IF EXISTS atoms")
-    cursor.execute("""
-        CREATE TABLE atoms (
-            char TEXT PRIMARY KEY,
-            components TEXT,
-            unicode_hex TEXT
-        )
-    """)
-
-    # 3. Traditional/Simplified Mapping
-    cursor.execute("DROP TABLE IF EXISTS st_map")
-    cursor.execute("""
-        CREATE TABLE st_map (
-            traditional TEXT PRIMARY KEY,
-            simplified TEXT
-        )
-    """)
+    # Completion Table
+    cursor.execute("DROP TABLE IF EXISTS completion_table")
+    cursor.execute("CREATE TABLE completion_table (pk TEXT PRIMARY KEY, rank INTEGER)")
+    cursor.execute("CREATE INDEX idx_comp_pk ON completion_table(pk)")
 
     # --- Load Jieba Dict ---
     jieba_path = os.path.join(sources_dir, 'jieba_dict.txt')
     if os.path.exists(jieba_path):
-        log(f"📥 Loading dictionary from {jieba_path}...", fg='cyan')
+        log(f"📥 Loading dictionary...", fg='cyan')
         batch = []
+        comp_batch = []
         with open(jieba_path, 'r', encoding='utf-8') as f:
             for line in f:
                 parts = line.strip().split()
                 if len(parts) >= 2:
                     try:
                         term = parts[0]
-                        freq = int(parts[1])
-                        tag = parts[2] if len(parts) > 2 else None
-                        batch.append((term, freq, tag))
+                        freq = parts[1]
+                        tag = parts[2] if len(parts) > 2 else ""
+                        batch.append((term, "", tag, freq, "dict"))
+                        comp_batch.append((term, int(freq)))
                     except (ValueError, IndexError): continue
                 if len(batch) >= 5000:
-                    cursor.executemany("INSERT OR IGNORE INTO dictionary (term, frequency, tag) VALUES (?, ?, ?)", batch)
-                    batch = []
+                    cursor.executemany("INSERT INTO entries (pk, desc, tags, val, source) VALUES (?, ?, ?, ?, ?)", batch)
+                    cursor.executemany("INSERT OR IGNORE INTO completion_table (pk, rank) VALUES (?, ?)", comp_batch)
+                    batch, comp_batch = [], []
         if batch:
-            cursor.executemany("INSERT OR IGNORE INTO dictionary (term, frequency, tag) VALUES (?, ?, ?)", batch)
-
-    # --- Load Cilin ---
-    cilin_path = os.path.join(sources_dir, 'cilin.txt')
-    if os.path.exists(cilin_path):
-        log(f"📥 Loading semantic codes from {cilin_path}...", fg='cyan')
-        term_to_codes = {}
-        with open(cilin_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if not line: continue
-                parts = line.split()
-                if len(parts) < 2: continue
-                code = parts[0].rstrip('= #@')
-                terms = parts[1:]
-                for t in terms:
-                    if t not in term_to_codes: term_to_codes[t] = set()
-                    term_to_codes[t].add(code)
-        
-        batch = []
-        for t, codes in term_to_codes.items():
-            batch.append((",".join(codes), t))
-            if len(batch) >= 2000:
-                cursor.executemany("UPDATE dictionary SET semantic_codes = ? WHERE term = ?", batch)
-                batch = []
-        if batch:
-            cursor.executemany("UPDATE dictionary SET semantic_codes = ? WHERE term = ?", batch)
+            cursor.executemany("INSERT INTO entries (pk, desc, tags, val, source) VALUES (?, ?, ?, ?, ?)", batch)
+            cursor.executemany("INSERT OR IGNORE INTO completion_table (pk, rank) VALUES (?, ?)", comp_batch)
 
     # --- Load IDS (Atoms) ---
     ids_path = os.path.join(sources_dir, 'ids.txt')
     if os.path.exists(ids_path):
-        log(f"📥 Loading character atoms from {ids_path}...", fg='cyan')
+        log(f"📥 Loading character atoms...", fg='cyan')
         batch = []
         with open(ids_path, 'r', encoding='utf-8') as f:
             for line in f:
                 if line.startswith('#') or not line.strip(): continue
-                parts = line.strip().split('	')
+                parts = line.strip().split('\t')
                 if len(parts) >= 3:
-                    u_hex = parts[0]
                     char = parts[1]
                     components = parts[2]
-                    batch.append((char, components, u_hex))
+                    batch.append((char, components, "", "0", "atoms"))
                 if len(batch) >= 5000:
-                    cursor.executemany("INSERT OR IGNORE INTO atoms (char, components, unicode_hex) VALUES (?, ?, ?)", batch)
+                    cursor.executemany("INSERT INTO entries (pk, desc, tags, val, source) VALUES (?, ?, ?, ?, ?)", batch)
                     batch = []
         if batch:
-            cursor.executemany("INSERT OR IGNORE INTO atoms (char, components, unicode_hex) VALUES (?, ?, ?)", batch)
+            cursor.executemany("INSERT INTO entries (pk, desc, tags, val, source) VALUES (?, ?, ?, ?, ?)", batch)
 
-    # --- Load ST Map ---
-    st_path = os.path.join(sources_dir, 'STCharacters.txt')
-    if os.path.exists(st_path):
-        log(f"📥 Loading ST mapping from {st_path}...", fg='cyan')
-        batch = []
-        with open(st_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                if line.startswith('#') or not line.strip(): continue
-                parts = line.strip().split('	')
-                if len(parts) >= 2:
-                    trad = parts[0]
-                    simp = parts[1].split()[0] # Take first simplified version
-                    batch.append((trad, simp))
-        cursor.executemany("INSERT OR IGNORE INTO st_map (traditional, simplified) VALUES (?, ?)", batch)
-
-    cursor.execute("CREATE INDEX idx_dict_freq ON dictionary(frequency DESC)")
-    cursor.execute("CREATE INDEX idx_atoms_comp ON atoms(components)")
-    
     conn.commit()
     conn.close()
-    log("✅ Lexicon initialized successfully.", fg='green', bold=True)
+    log("✅ Lexicon initialized with FTS5.", fg='green', bold=True)
+
+@cli.command()
+@click.argument('query', required=False)
+@click.option('--stdin', is_flag=True, help='Read from stdin')
+@click.option('--output', '-o', type=click.Choice(['view', 'json', 'plain', 'stream']), default='view')
+@click.option('--field', '-f', multiple=True, help='Filter specific fields')
+@click.option('--limit', default=10, help='Max results')
+def search(query, stdin, output, field, limit):
+    """Universal search across words and characters."""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    if is_headless() and output == 'view':
+        output = 'stream'
+        
+    for q in get_input_stream(query, stdin):
+        if not q: continue
+        # Use FTS5 MATCH for speed. Try prefix match.
+        cursor.execute("SELECT * FROM entries WHERE pk MATCH ? ORDER BY CAST(val AS INTEGER) DESC LIMIT ?", (f"{q}*", limit))
+        rows = cursor.fetchall()
+        for row in rows:
+            format_output(row, output, field)
+    conn.close()
+
+@cli.command()
+def doctor():
+    """Check database health and statistics."""
+    if not os.path.exists(DB_PATH):
+        log("❌ Database file missing.", fg='red')
+        return
+
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT count(*) FROM entries")
+        count = cursor.fetchone()[0]
+        size = os.path.getsize(DB_PATH) / (1024 * 1024)
+        log(f"📊 Lexicon Stats:")
+        log(f"  - Path: {DB_PATH}")
+        log(f"  - Size: {size:.2f} MB")
+        log(f"  - Total Entries: {count}")
+    finally:
+        conn.close()
 
 @cli.command()
 @click.argument('query')
-@click.option('--limit', default=10, help='Max results')
-def search(query, limit):
-    """Search for terms in the dictionary."""
+def complete(query):
+    """Fast completion for shell tab."""
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM dictionary WHERE term LIKE ? ORDER BY frequency DESC LIMIT ?", (f"%{query}%", limit))
-    rows = cursor.fetchall()
-    for r in rows:
-        echo_data(dict(r))
+    cursor.execute("SELECT pk FROM completion_table WHERE pk LIKE ? ORDER BY rank DESC LIMIT 10", (f"{query}%",))
+    for row in cursor:
+        click.echo(row['pk'])
     conn.close()
 
 @cli.command()
 @click.argument('char')
 def atoms(char):
-    """Get components of a character."""
+    """Shortcut: Get components of a character."""
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM atoms WHERE char = ?", (char,))
+    cursor.execute("SELECT * FROM entries WHERE pk = ? AND source = 'atoms'", (char,))
     row = cursor.fetchone()
     if row:
-        echo_data(dict(row))
-    else:
-        log(f"No component data for: {char}", fg='yellow')
-    conn.close()
-
-@cli.command()
-@click.argument('component')
-@click.option('--limit', default=20, help='Max results')
-def find(component, limit):
-    """Find characters containing a specific component."""
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM atoms WHERE components LIKE ? LIMIT ?", (f"%{component}%", limit))
-    rows = cursor.fetchall()
-    for r in rows:
-        echo_data(dict(r))
-    conn.close()
-
-@cli.command()
-@click.option('--min-freq', default=1000, help='Minimum frequency')
-@click.option('--limit', default=100, help='Max results')
-def stream(min_freq, limit):
-    """Stream high-frequency words."""
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM dictionary WHERE frequency >= ? ORDER BY frequency DESC LIMIT ?", (min_freq, limit))
-    for row in cursor:
-        echo_data(dict(row))
+        format_output(row, 'view')
     conn.close()
 
 if __name__ == '__main__':
