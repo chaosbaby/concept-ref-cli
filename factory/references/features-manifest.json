@@ -1,164 +1,107 @@
 [
   {
     "id": "fts-engine",
-    "category": "Core / Retrieval",
+    "category": "Core",
     "label": "FTS5 全文索引",
-    "description": "基于 SQLite FTS5 的高性能搜索，支持虚列映射。",
-    "status": "mandatory",
-    "trigger": {
-      "type": "always"
-    },
-    "cli_integration": {
-      "command": "search",
-      "flags": [
-        "--limit",
-        "--field"
-      ]
-    }
+    "description": "基于 SQLite FTS5 的高性能搜索。",
+    "status": "mandatory"
   },
   {
     "id": "pipe-stream",
-    "category": "Core / Flow",
+    "category": "Core",
     "label": "Unix 管道流",
-    "description": "支持从 stdin 读取查询，并支持结果管道输出。",
-    "status": "mandatory",
-    "trigger": {
-      "type": "always"
-    },
-    "cli_integration": {
-      "command": "search",
-      "flags": [
-        "--stdin"
-      ]
-    }
+    "description": "支持从 stdin 读取查询及结果管道输出。",
+    "status": "mandatory"
   },
   {
     "id": "ndjson-output",
-    "category": "Core / Interop",
+    "category": "Interop",
     "label": "NDJSON 输出",
-    "description": "输出为单行 JSON，兼容 jq 等下游处理工具。",
-    "status": "mandatory",
-    "trigger": {
-      "type": "always"
-    },
-    "cli_integration": {
-      "command": "search",
-      "flags": [
-        "-o stream",
-        "-o json"
-      ]
-    }
+    "description": "兼容 jq 等工具的单行 JSON 输出。",
+    "status": "mandatory"
+  },
+  {
+    "id": "sub-command-isolation",
+    "category": "Architecture",
+    "label": "子命令隔离",
+    "description": "不同源拥有独立命令空间（如 lexicon dict）。",
+    "status": "mandatory"
+  },
+  {
+    "id": "param-filtering",
+    "category": "Retrieval",
+    "label": "多维参数过滤",
+    "description": "支持按词长、频率、标签进行区间过滤。",
+    "status": "recommended"
   },
   {
     "id": "multi-layer-dedup",
-    "category": "Data / Governance",
-    "label": "多层去重逻辑",
-    "description": "在 init 时基于字段指纹自动去重。",
-    "status": "recommended",
-    "trigger": {
-      "type": "conflict_risk",
-      "condition": "duplicate_keys"
-    },
-    "cli_integration": {
-      "command": "init",
-      "flags": [
-        "--dedup"
-      ]
-    }
+    "category": "Data",
+    "label": "多层去重",
+    "description": "在加载时基于指纹自动去重。",
+    "status": "recommended"
   },
   {
     "id": "rank-sorting",
-    "category": "Enhancement / Retrieval",
-    "label": "热度权重排序",
-    "description": "利用 rank/ 目录或热度字段进行排序优化。",
-    "status": "recommended",
-    "trigger": {
-      "type": "field_check",
-      "pattern": "^(rank|freq|count|hot|weight)$"
-    },
-    "cli_integration": {
-      "command": "search",
-      "flags": [
-        "--sort"
-      ]
-    }
+    "category": "Retrieval",
+    "label": "权重智能排序",
+    "description": "根据热度字段自动优化结果顺序。",
+    "status": "recommended"
   },
   {
     "id": "shell-completion",
-    "category": "UX / Efficiency",
+    "category": "UX",
     "label": "Shell 自动补全",
-    "description": "自动安装 bash/zsh 补全脚本。",
-    "status": "mandatory",
-    "trigger": {
-      "type": "always"
-    },
-    "cli_integration": {
-      "command": "completion",
-      "flags": [
-        "install"
-      ]
-    }
+    "description": "支持 Bash/Zsh 的 Tab 键补全。",
+    "status": "mandatory"
+  },
+  {
+    "id": "direct-sql",
+    "category": "Expert",
+    "label": "SQL 直连",
+    "description": "直接执行 SQLite 语句。",
+    "status": "optional"
+  },
+  {
+    "id": "config-manager",
+    "category": "UX",
+    "label": "配置管理",
+    "description": "持久化用户默认参数。",
+    "status": "optional"
   },
   {
     "id": "interactive-pick",
-    "category": "UX / Discovery",
+    "category": "UX",
     "label": "随机灵感捡拾",
-    "description": "pick 命令，随机返回高质量词条。",
-    "status": "optional",
-    "trigger": {
-      "type": "volume_check",
-      "min_records": 1000
-    },
-    "cli_integration": {
-      "command": "pick",
-      "flags": [
-        "--count"
-      ]
-    }
+    "description": "随机返回高质量词条。",
+    "status": "optional"
   },
   {
     "id": "doctor-stat",
     "category": "Maintenance",
-    "label": "健康诊断仪",
-    "description": "检查 DB 完整性、索引碎片率及数据统计。",
-    "status": "mandatory",
-    "trigger": {
-      "type": "always"
-    },
-    "cli_integration": {
-      "command": "doctor",
-      "flags": []
-    }
+    "label": "健康诊断",
+    "description": "DB 完整性及统计分布检查。",
+    "status": "mandatory"
   },
   {
     "id": "schema-reflection",
-    "category": "Core / Transparency",
+    "category": "Core",
     "label": "Schema 自省",
-    "description": "动态输出当前底层数据库的字段定义。",
-    "status": "mandatory",
-    "trigger": {
-      "type": "always"
-    },
-    "cli_integration": {
-      "command": "schema",
-      "flags": []
-    }
+    "description": "输出底层数据库字段定义。",
+    "status": "mandatory"
   },
   {
     "id": "batch-loader",
-    "category": "Data / Build",
+    "category": "Data",
     "label": "工业级加载器",
-    "description": "支持多线程从大规模碎片 JSON 加载数据。",
-    "status": "recommended",
-    "trigger": {
-      "type": "source_pattern",
-      "pattern": ".*\\.json$"
-    },
-    "cli_integration": {
-      "command": "init",
-      "flags": [
-        "--batch-size"
-      ]
-    }
+    "description": "多线程加载大规模碎片 JSON/TSV。",
+    "status": "recommended"
+  },
+  {
+    "id": "auto-completion-engine",
+    "category": "UX",
+    "label": "补全引擎",
+    "description": "毫秒级前缀匹配补全。",
+    "status": "recommended"
   }
 ]
