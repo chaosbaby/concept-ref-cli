@@ -26,7 +26,8 @@ class ConfigManager:
 SUPPORTED_FEATURES = [
     "fts-engine", "pipe-stream", "unified-output-protocol", 
     "sub-command-isolation", "direct-sql", "doctor-stat",
-    "schema-reflection", "shell-completion-manager", "config-manager"
+    "schema-reflection", "shell-completion-manager", "config-manager",
+    "auto-completion-engine", "interactive-pick"
 ]
 
 class LexiconStore:
@@ -109,16 +110,27 @@ def init(sources_dir, clear):
     if dict_path.exists():
         cursor.execute("DROP TABLE IF EXISTS source_dict")
         cursor.execute("CREATE VIRTUAL TABLE source_dict USING fts5(term, freq, tag)")
+        cursor.execute("DROP TABLE IF EXISTS comp_dict")
+        cursor.execute("CREATE TABLE comp_dict (term TEXT PRIMARY KEY, freq INTEGER)")
+        
         with open(dict_path, 'r', encoding='utf-8') as f:
             batch = []
+            comp_batch = []
             for line in f:
                 parts = line.strip().split()
                 if len(parts) >= 2:
-                    batch.append((parts[0], parts[1], parts[2] if len(parts)>2 else ""))
+                    term, freq = parts[0], parts[1]
+                    tag = parts[2] if len(parts)>2 else ""
+                    batch.append((term, freq, tag))
+                    comp_batch.append((term, int(freq)))
                 if len(batch) >= 5000:
                     cursor.executemany("INSERT INTO source_dict VALUES (?,?,?)", batch)
-                    batch = []
-            if batch: cursor.executemany("INSERT INTO source_dict VALUES (?,?,?)", batch)
+                    cursor.executemany("INSERT OR IGNORE INTO comp_dict VALUES (?,?)", comp_batch)
+                    batch, comp_batch = [], []
+            if batch: 
+                cursor.executemany("INSERT INTO source_dict VALUES (?,?,?)", batch)
+                cursor.executemany("INSERT OR IGNORE INTO comp_dict VALUES (?,?)", comp_batch)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_comp_freq ON comp_dict(term, freq DESC)")
 
     # Init Table: IDS
     ids_path = Path(sources_dir) / "ids.txt"
@@ -228,7 +240,7 @@ def features(status):
     click.echo("")
 
 @cli.command()
-@click.argument('query')
+@click.argument('statement')
 def sql(statement):
     """Direct SQL access."""
     store = LexiconStore()
@@ -239,6 +251,36 @@ def sql(statement):
             click.echo(json.dumps(dict(row), ensure_ascii=False))
     except Exception as e: click.secho(f"Error: {e}", fg='red')
     finally: store.close()
+
+@cli.command()
+@click.argument('query')
+def complete(query):
+    """Fast prefix completion for shell tab. (Target < 50ms)"""
+    if not os.path.exists(DB_PATH): return
+    store = LexiconStore()
+    cursor = store.conn.cursor()
+    cursor.execute(
+        "SELECT term FROM comp_dict WHERE term LIKE ? ORDER BY freq DESC LIMIT 15", 
+        (f"{query}%",)
+    )
+    for row in cursor:
+        click.echo(row['term'])
+    store.close()
+
+@cli.command()
+@click.option('--count', default=1, help='Number of items to pick')
+def pick(count):
+    """[UX] Pick high-quality random items for inspiration."""
+    if not os.path.exists(DB_PATH): return
+    store = LexiconStore()
+    cursor = store.conn.cursor()
+    cursor.execute(
+        "SELECT * FROM source_dict WHERE CAST(freq AS INTEGER) > 5000 ORDER BY RANDOM() LIMIT ?", 
+        (count,)
+    )
+    for row in cursor:
+        format_output(row, 'show', source_id='dict')
+    store.close()
 
 @cli.group()
 def config_cmd():

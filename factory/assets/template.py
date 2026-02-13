@@ -4,15 +4,24 @@ import sqlite3
 import os
 import sys
 import re
-from datetime import datetime
-
-try:
-    import zhconv
-except ImportError:
-    zhconv = None
+from pathlib import Path
 
 # Standard DB path
 DB_PATH = os.path.expanduser("~/.{{ tool_id }}.db")
+CONFIG_PATH = os.path.expanduser("~/.{{ tool_id }}.json")
+
+class ConfigManager:
+    @staticmethod
+    def load():
+        if os.path.exists(CONFIG_PATH):
+            with open(CONFIG_PATH, 'r') as f:
+                return json.load(f)
+        return {"output": "show", "limit": 10}
+
+    @staticmethod
+    def save(config):
+        with open(CONFIG_PATH, 'w') as f:
+            json.dump(config, f, indent=2)
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -35,11 +44,10 @@ def format_output(row, mode, fields=None):
     elif mode == 'plain':
         click.echo(" ".join([str(v) for v in data.values()]))
     else: # 'view' or default
-        if 'pk' in data and 'desc' in data:
-            click.secho(f"【{data['pk']}】", fg='cyan', nl=False)
-            click.echo(f" {data['desc']}")
-        else:
-            click.echo(json.dumps(data, indent=2, ensure_ascii=False))
+        pk = data.get('pk') or list(data.values())[0]
+        desc = data.get('desc') or " | ".join([str(v) for k,v in data.items() if k != 'pk'])
+        click.secho(f"【{pk}】", fg='cyan', nl=False)
+        click.echo(f" {desc}")
 
 def get_input_stream(query, stdin_flag):
     """Handle both argument query and stdin stream."""
@@ -57,37 +65,32 @@ def cli():
 @cli.command()
 def features():
     """Display supported features and capabilities."""
-    # This manifest is injected by the factory during generation
-    manifest = [
-        {"label": "FTS5 全文索引", "status": "supported", "desc": "基于 SQLite FTS5 的高性能搜索。"},
-        {"label": "Unix 管道流", "status": "supported", "desc": "支持 stdin/stdout 管道处理。"},
-        {"label": "NDJSON 输出", "status": "supported", "desc": "单行 JSON，兼容 jq。"},
-        {"label": "Shell 自动补全", "status": "supported", "desc": "支持 tab 补全（即将安装）。"},
-    ]
+    manifest_path = os.path.join(os.path.dirname(__file__), 'features-manifest.json')
+    # In practice, the factory can bake this or the CLI can look for it.
     click.secho(f"\n🚀 {{ tool_id }} Feature Matrix\n", fg='cyan', bold=True)
-    for item in manifest:
-        status_icon = "✅" if item['status'] == 'supported' else "⚪"
-        click.echo(f" {status_icon} {item['label']:<20} - {item['desc']}")
-    click.echo("")
+    # Placeholder for dynamic display logic
+    click.echo(" [Dynamic Feature Matrix Implementation]")
 
 @cli.command()
 @click.argument('query', required=False)
 @click.option('--stdin', is_flag=True, help='Read from stdin')
-@click.option('--output', '-o', type=click.Choice(['view', 'json', 'plain', 'stream']), default='view')
+@click.option('--output', '-o', type=click.Choice(['view', 'json', 'plain', 'stream']), help='Output mode')
 @click.option('--field', '-f', multiple=True, help='Filter specific fields')
-@click.option('--limit', default=20, help='Max results')
+@click.option('--limit', type=int)
 def search(query, stdin, output, field, limit):
     """Search with standardized input/output."""
+    cfg = ConfigManager.load()
+    output = output or cfg.get('output', 'view')
+    limit = limit or cfg.get('limit', 20)
+    
     conn = get_db()
     cursor = conn.cursor()
     
-    # Auto-detect stream mode if in pipe
     if is_headless() and output == 'view':
         output = 'stream'
         
     for q in get_input_stream(query, stdin):
         if not q: continue
-        # Generic search on pk (Primary Key)
         cursor.execute("SELECT * FROM entries WHERE pk MATCH ? LIMIT ?", (f"{q}*", limit))
         rows = cursor.fetchall()
         for row in rows:
@@ -98,28 +101,37 @@ def search(query, stdin, output, field, limit):
 @cli.command()
 @click.argument('query')
 def complete(query):
-    """Fast completion for shell tab. (Target < 50ms)"""
+    """Fast prefix completion for shell tab. (Target < 50ms)"""
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT pk FROM completion_table WHERE pk LIKE ? ORDER BY rank DESC LIMIT 10", (f"{query}%",))
+    cursor.execute("SELECT pk FROM completion_table WHERE pk LIKE ? ORDER BY rank DESC LIMIT 15", (f"{query}%",))
     for row in cursor:
         click.echo(row['pk'])
+    conn.close()
+
+@cli.command()
+@click.option('--count', default=1)
+def pick(count):
+    """Randomly pick items for inspiration."""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM entries ORDER BY RANDOM() LIMIT ?", (count,))
+    for row in cursor:
+        format_output(row, 'view')
     conn.close()
 
 @cli.command()
 @click.option('--data', required=True)
 def init(data):
     """Initialize with FTS5 and completion index."""
-    # To be customized
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("DROP TABLE IF EXISTS entries")
     cursor.execute("CREATE VIRTUAL TABLE entries USING fts5(pk, desc, tags, val)")
     
-    # Fast completion index
     cursor.execute("DROP TABLE IF EXISTS completion_table")
     cursor.execute("CREATE TABLE completion_table (pk TEXT PRIMARY KEY, rank INTEGER)")
-    cursor.execute("CREATE INDEX idx_comp_pk ON completion_table(pk)")
+    cursor.execute("CREATE INDEX idx_comp_pk ON completion_table(pk, rank DESC)")
     conn.commit()
     conn.close()
 

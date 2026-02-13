@@ -14,7 +14,8 @@ Refactor Lexicon CLI using a "one feature at a time" implementation and verifica
 - [x] **[Sub-commanding]**: Isolation of `dict` and `ids` commands.
 - [x] **[Filtering]**: Parametric filtering (rank, tag, len) for `dict` source.
 - [x] **[Config]**: Implement `config-manager` for persistent defaults (e.g., default output format).
-- [ ] **[Next: Completion]**: Implement `auto-completion-engine` for millisecond-level prefix matching.
+- [x] **[Completion]**: Implement `auto-completion-engine` for millisecond-level prefix matching.
+- [x] **[UX-Enhancement]**: Implement `interactive-pick` for random high-quality inspiration.
 - [ ] **[Next: Interop]**: Refine `ndjson-output` and pipe-stream integration for all sub-commands.
 
 ## Feature Acceptance Log
