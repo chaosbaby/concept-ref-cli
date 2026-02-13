@@ -86,6 +86,36 @@
     }
   },
   {
+    "id": "rank-sorting",
+    "category": "Retrieval",
+    "label": "权重智能排序",
+    "description": "根据热度字段自动优化结果顺序。",
+    "status": "recommended",
+    "trigger": {
+      "type": "field_check",
+      "pattern": "^(rank|freq|hot)$"
+    },
+    "cli_integration": {
+      "command": "search",
+      "flags": ["--sort"]
+    }
+  },
+  {
+    "id": "multi-layer-dedup",
+    "category": "Data",
+    "label": "多层去重",
+    "description": "在加载时基于指纹自动去重。",
+    "status": "recommended",
+    "trigger": {
+      "type": "conflict_risk",
+      "condition": "duplicate_keys"
+    },
+    "cli_integration": {
+      "command": "init",
+      "flags": ["--dedup"]
+    }
+  },
+  {
     "id": "shell-completion-manager",
     "category": "UX",
     "label": "补全管理器",
@@ -97,6 +127,49 @@
     "cli_integration": {
       "command": "completion",
       "flags": ["show", "install"]
+    }
+  },
+  {
+    "id": "auto-completion-engine",
+    "category": "UX",
+    "label": "内建补全引擎",
+    "description": "毫秒级前缀匹配补全接口。",
+    "status": "recommended",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "complete",
+      "flags": []
+    }
+  },
+  {
+    "id": "config-manager",
+    "category": "UX",
+    "label": "配置管理",
+    "description": "持久化用户默认参数（如默认输出模式）。",
+    "status": "optional",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "config",
+      "flags": ["set", "get"]
+    }
+  },
+  {
+    "id": "interactive-pick",
+    "category": "UX",
+    "label": "随机灵感捡拾",
+    "description": "随机返回高质量词条。",
+    "status": "optional",
+    "trigger": {
+      "type": "volume_check",
+      "min_records": 1000
+    },
+    "cli_integration": {
+      "command": "pick",
+      "flags": ["--count"]
     }
   },
   {
