@@ -4,104 +4,242 @@
     "category": "Core",
     "label": "FTS5 全文索引",
     "description": "基于 SQLite FTS5 的高性能搜索。",
-    "status": "mandatory"
+    "status": "mandatory",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "search",
+      "flags": [
+        "--limit",
+        "--field"
+      ]
+    }
   },
   {
     "id": "pipe-stream",
     "category": "Core",
     "label": "Unix 管道流",
     "description": "支持从 stdin 读取查询及结果管道输出。",
-    "status": "mandatory"
+    "status": "mandatory",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "search",
+      "flags": [
+        "--stdin",
+        "-"
+      ]
+    }
   },
   {
     "id": "ndjson-output",
     "category": "Interop",
     "label": "NDJSON 输出",
     "description": "兼容 jq 等工具的单行 JSON 输出。",
-    "status": "mandatory"
+    "status": "mandatory",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "search",
+      "flags": [
+        "-o stream",
+        "-o json"
+      ]
+    }
   },
   {
     "id": "sub-command-isolation",
     "category": "Architecture",
     "label": "子命令隔离",
-    "description": "不同源拥有独立命令空间（如 lexicon dict）。",
-    "status": "mandatory"
+    "description": "不同功能源拥有独立命令空间（如 lexicon dict）。",
+    "status": "mandatory",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "<source>",
+      "flags": [
+        "search"
+      ]
+    }
   },
   {
     "id": "param-filtering",
     "category": "Retrieval",
     "label": "多维参数过滤",
     "description": "支持按词长、频率、标签进行区间过滤。",
-    "status": "recommended"
+    "status": "recommended",
+    "trigger": {
+      "type": "field_check",
+      "pattern": "^(rank|freq|tag|len)$"
+    },
+    "cli_integration": {
+      "command": "dict",
+      "flags": [
+        "--rank-min",
+        "--len-min",
+        "--tag"
+      ]
+    }
   },
   {
     "id": "multi-layer-dedup",
     "category": "Data",
     "label": "多层去重",
     "description": "在加载时基于指纹自动去重。",
-    "status": "recommended"
+    "status": "recommended",
+    "trigger": {
+      "type": "conflict_risk",
+      "condition": "duplicate_keys"
+    },
+    "cli_integration": {
+      "command": "init",
+      "flags": [
+        "--dedup"
+      ]
+    }
   },
   {
     "id": "rank-sorting",
     "category": "Retrieval",
     "label": "权重智能排序",
     "description": "根据热度字段自动优化结果顺序。",
-    "status": "recommended"
+    "status": "recommended",
+    "trigger": {
+      "type": "field_check",
+      "pattern": "^(rank|freq|hot)$"
+    },
+    "cli_integration": {
+      "command": "search",
+      "flags": [
+        "--sort"
+      ]
+    }
   },
   {
     "id": "shell-completion",
     "category": "UX",
     "label": "Shell 自动补全",
     "description": "支持 Bash/Zsh 的 Tab 键补全。",
-    "status": "mandatory"
+    "status": "mandatory",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "completion",
+      "flags": [
+        "install"
+      ]
+    }
   },
   {
     "id": "direct-sql",
     "category": "Expert",
     "label": "SQL 直连",
     "description": "直接执行 SQLite 语句。",
-    "status": "optional"
+    "status": "optional",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "sql",
+      "flags": []
+    }
   },
   {
     "id": "config-manager",
     "category": "UX",
     "label": "配置管理",
     "description": "持久化用户默认参数。",
-    "status": "optional"
+    "status": "optional",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "config",
+      "flags": [
+        "set",
+        "get"
+      ]
+    }
   },
   {
     "id": "interactive-pick",
     "category": "UX",
     "label": "随机灵感捡拾",
     "description": "随机返回高质量词条。",
-    "status": "optional"
+    "status": "optional",
+    "trigger": {
+      "type": "volume_check",
+      "min_records": 1000
+    },
+    "cli_integration": {
+      "command": "pick",
+      "flags": [
+        "--count"
+      ]
+    }
   },
   {
     "id": "doctor-stat",
     "category": "Maintenance",
     "label": "健康诊断",
     "description": "DB 完整性及统计分布检查。",
-    "status": "mandatory"
+    "status": "mandatory",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "doctor",
+      "flags": []
+    }
   },
   {
     "id": "schema-reflection",
     "category": "Core",
     "label": "Schema 自省",
     "description": "输出底层数据库字段定义。",
-    "status": "mandatory"
+    "status": "mandatory",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "schema",
+      "flags": []
+    }
   },
   {
     "id": "batch-loader",
     "category": "Data",
     "label": "工业级加载器",
     "description": "多线程加载大规模碎片 JSON/TSV。",
-    "status": "recommended"
+    "status": "recommended",
+    "trigger": {
+      "type": "source_pattern",
+      "pattern": ".*\\.json$"
+    },
+    "cli_integration": {
+      "command": "init",
+      "flags": [
+        "--batch-size"
+      ]
+    }
   },
   {
     "id": "auto-completion-engine",
     "category": "UX",
     "label": "补全引擎",
     "description": "毫秒级前缀匹配补全。",
-    "status": "recommended"
+    "status": "recommended",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "complete",
+      "flags": []
+    }
   }
 ]
