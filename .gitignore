@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.db
+.DS_Store
+
+# Data sources (raw data)
+sources/*
+!sources/README.md
+!sources/.gitkeep
+
+# Generated data (databases, etc.)
+data/*
+!data/.gitkeep
+
+# Distribution
+build/
+dist/
+*.egg-info/
+.gemini/

@@ -1,0 +1,388 @@
+import click
+import json
+import sqlite3
+import os
+import sys
+import zhconv
+
+# 数据库路径：指向项目根目录下的 data 目录
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(BASE_DIR, "data", "xh_xinhua.db")
+
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+@click.group()
+def cli():
+    """中华新华字典 CLI 查找工具"""
+    # 如果数据库不存在且不是调用 init 命令，则提示或自动初始化
+    if not os.path.exists(DB_PATH) and sys.argv[-1] != 'init':
+        click.secho("数据库未初始化，正在自动执行初始化...", fg='cyan')
+        ctx = click.get_current_context()
+        ctx.invoke(init)
+    pass
+
+@cli.command()
+@click.argument('shell', type=click.Choice(['bash', 'zsh', 'fish']))
+def completion(shell):
+    """生成命令补全脚本指令"""
+    cmd = f"eval \"$(_XH_COMPLETE={shell}_source xh)\""
+    click.echo(f"# 请将以下命令添加到你的 shell 配置文件中 (如 ~/.bashrc 或 ~/.zshrc):")
+    click.echo(cmd)
+
+def handle_search(cursor, query, is_json, strict):
+    results = {}
+    # 统一转简体进行匹配
+    query = zhconv.convert(query, 'zh-hans')
+    pattern = query if strict else f"%{query}%"
+    op = "=" if strict else "LIKE"
+
+    # 搜索成语
+    cursor.execute(f"SELECT * FROM idiom WHERE word {op} ? OR abbreviation = ? LIMIT 10", (pattern, query))
+    idioms = cursor.fetchall()
+    if idioms:
+        results['idioms'] = [dict(r) for r in idioms]
+        if not is_json:
+            click.secho("\n> 成语:", fg='green')
+            for r in idioms: click.echo(f"  {r['word']}")
+
+    # 搜索词语
+    cursor.execute(f"SELECT * FROM ci WHERE ci {op} ? LIMIT 10", (pattern,))
+    cis = cursor.fetchall()
+    if cis:
+        results['cis'] = [dict(r) for r in cis]
+        if not is_json:
+            click.secho("\n> 词语:", fg='cyan')
+            for r in cis: click.echo(f"  {r['ci']}")
+
+    # 搜索歇后语
+    cursor.execute(f"SELECT * FROM xiehouyu WHERE riddle {op} ? OR answer {op} ? LIMIT 10", (pattern, pattern))
+    xies = cursor.fetchall()
+    if xies:
+        results['xiehouyus'] = [dict(r) for r in xies]
+        if not is_json:
+            click.secho("\n> 歇后语:", fg='magenta')
+            for r in xies: click.echo(f"  {r['riddle']} -> {r['answer']}")
+
+    if is_json:
+        click.echo(json.dumps(results, ensure_ascii=False))
+
+@cli.command()
+@click.argument('query', required=False)
+@click.option('--json', 'is_json', is_flag=True, help='Output in JSON format')
+@click.option('--strict', is_flag=True, help='Strict mode (exact match)')
+@click.option('--stream', is_flag=True, help='Read queries from stdin')
+def search(query, is_json, strict, stream):
+    """全局搜索 (跨表查找)"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    if stream:
+        for line in sys.stdin:
+            q = line.strip()
+            if q:
+                if not is_json:
+                    click.secho(f"正在全局搜索: {q}...", dim=True)
+                handle_search(cursor, q, is_json, strict)
+    elif query:
+        if not is_json:
+            click.secho(f"正在全局搜索: {query}...", dim=True)
+        handle_search(cursor, query, is_json, strict)
+    else:
+        click.echo("错误: 请提供查询词或使用 --stream 选项。")
+
+    conn.close()
+
+@cli.command()
+@click.option('--data-dir', default='sources/xinhua-json', help='JSON 数据目录')
+def init(data_dir):
+    """初始化数据库并建立索引 (JSON -> SQLite)"""
+    if not os.path.exists(data_dir):
+        click.echo(f"错误: 目录 {data_dir} 不存在。")
+        return
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # 创建表
+    click.echo("正在创建表...")
+    cursor.execute("DROP TABLE IF EXISTS idiom")
+    cursor.execute("""
+        CREATE TABLE idiom (
+            word TEXT PRIMARY KEY,
+            pinyin TEXT,
+            abbreviation TEXT,
+            explanation TEXT,
+            derivation TEXT,
+            example TEXT
+        )
+    """)
+    
+    cursor.execute("DROP TABLE IF EXISTS ci")
+    cursor.execute("""
+        CREATE TABLE ci (
+            ci TEXT PRIMARY KEY,
+            explanation TEXT
+        )
+    """)
+
+    cursor.execute("DROP TABLE IF EXISTS word")
+    cursor.execute("""
+        CREATE TABLE word (
+            word TEXT PRIMARY KEY,
+            pinyin TEXT,
+            radicals TEXT,
+            strokes INTEGER,
+            explanation TEXT,
+            more TEXT
+        )
+    """)
+
+    cursor.execute("DROP TABLE IF EXISTS xiehouyu")
+    cursor.execute("""
+        CREATE TABLE xiehouyu (
+            riddle TEXT,
+            answer TEXT
+        )
+    """)
+
+    # 导入数据
+    def load_json(filename):
+        path = os.path.join(data_dir, filename)
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        return []
+
+    click.echo("正在导入成语...")
+    idioms = load_json('idiom.json')
+    cursor.executemany(
+        "INSERT OR REPLACE INTO idiom VALUES (?, ?, ?, ?, ?, ?)",
+        [(item.get('word'), item.get('pinyin'), item.get('abbreviation'), 
+          item.get('explanation'), item.get('derivation'), item.get('example')) for item in idioms]
+    )
+
+    click.echo("正在导入词语 (这可能需要一点时间)...")
+    cis = load_json('ci.json')
+    cursor.executemany(
+        "INSERT OR REPLACE INTO ci VALUES (?, ?)",
+        [(item.get('ci'), item.get('explanation')) for item in cis]
+    )
+
+    click.echo("正在导入汉字...")
+    words = load_json('word.json')
+    cursor.executemany(
+        "INSERT OR REPLACE INTO word VALUES (?, ?, ?, ?, ?, ?)",
+        [(item.get('word'), item.get('pinyin'), item.get('radicals'), 
+          item.get('strokes'), item.get('explanation'), item.get('more')) for item in words]
+    )
+
+    click.echo("正在导入歇后语...")
+    xies = load_json('xiehouyu.json')
+    cursor.executemany(
+        "INSERT INTO xiehouyu VALUES (?, ?)",
+        [(item.get('riddle'), item.get('answer')) for item in xies]
+    )
+
+    # 建立索引
+    click.echo("正在建立查询索引...")
+    cursor.execute("CREATE INDEX idx_idiom_abbr ON idiom(abbreviation)")
+    cursor.execute("CREATE INDEX idx_idiom_pinyin ON idiom(pinyin)")
+    cursor.execute("CREATE INDEX idx_word_pinyin ON word(pinyin)")
+    
+    conn.commit()
+    conn.close()
+    click.echo(f"初始化完成！数据库已保存至: {DB_PATH}")
+
+def handle_idiom(cursor, query, is_json, strict):
+    pattern = query if strict else f"{query}%"
+    op = "=" if strict else "LIKE"
+    
+    sql = f"""
+        SELECT * FROM idiom 
+        WHERE abbreviation = ? 
+           OR word {op} ? 
+           OR pinyin = ?
+        LIMIT 10
+    """
+    cursor.execute(sql, (query.lower(), pattern, query))
+    results = cursor.fetchall()
+    
+    if not results:
+        if is_json:
+            click.echo("{}")
+        else:
+            click.secho(f"未找到关于 '{query}' 的成语。", fg='yellow')
+        return
+
+    if is_json:
+        if strict:
+            click.echo(json.dumps(dict(results[0]), ensure_ascii=False))
+        else:
+            click.echo(json.dumps([dict(r) for r in results], ensure_ascii=False))
+    else:
+        for row in results:
+            click.secho(f"【{row['word']}】", fg='green', bold=True)
+            click.secho(f"拼音: {row['pinyin']}")
+            click.secho(f"释义: {row['explanation']}")
+            if row['derivation']:
+                click.secho(f"出处: {row['derivation']}", dim=True)
+            if row['example']:
+                click.secho(f"示例: {row['example']}", dim=True)
+            click.echo("-" * 20)
+
+@cli.command()
+@click.argument('query', required=False)
+@click.option('--json', 'is_json', is_flag=True, help='Output in JSON format')
+@click.option('--strict', is_flag=True, help='Strict mode (exact match)')
+@click.option('--stream', is_flag=True, help='Read queries from stdin')
+def idiom(query, is_json, strict, stream):
+    """查找成语 (支持汉字、拼音、缩写)"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    if stream:
+        for line in sys.stdin:
+            q = line.strip()
+            if q: handle_idiom(cursor, q, is_json, strict)
+    elif query:
+        handle_idiom(cursor, query, is_json, strict)
+    else:
+        click.echo("错误: 请提供查询词或使用 --stream 选项。")
+    conn.close()
+
+def handle_word(cursor, query, is_json):
+    cursor.execute("SELECT * FROM word WHERE word = ?", (query,))
+    row = cursor.fetchone()
+    
+    if not row:
+        if is_json:
+            click.echo("{}")
+        else:
+            click.secho(f"未找到汉字 '{query}'。", fg='yellow')
+        return
+
+    if is_json:
+        click.echo(json.dumps(dict(row), ensure_ascii=False))
+    else:
+        click.secho(f"【{row['word']}】", fg='green', bold=True)
+        click.echo(f"拼音: {row['pinyin']} | 部首: {row['radicals']} | 笔画: {row['strokes']}")
+        click.echo(f"释义:\n{row['explanation']}")
+        if row['more']:
+            click.echo(f"\n更多:\n{row['more']}")
+
+@cli.command()
+@click.argument('query', required=False)
+@click.option('--json', 'is_json', is_flag=True, help='Output in JSON format')
+@click.option('--stream', is_flag=True, help='Read queries from stdin')
+def word(query, is_json, stream):
+    """查找汉字"""
+    conn = get_db()
+    cursor = conn.cursor()
+    if stream:
+        for line in sys.stdin:
+            q = line.strip()
+            if q: handle_word(cursor, q, is_json)
+    elif query:
+        handle_word(cursor, query, is_json)
+    else:
+        click.echo("错误: 请提供查询词或使用 --stream 选项。")
+    conn.close()
+
+def handle_ci(cursor, query, is_json, strict):
+    pattern = query if strict else f"{query}%"
+    op = "=" if strict else "LIKE"
+    
+    cursor.execute(f"SELECT * FROM ci WHERE ci {op} ?", (pattern,))
+    results = cursor.fetchall()
+    
+    if not results:
+        if is_json:
+            click.echo("{}")
+        else:
+            click.secho(f"未找到词语 '{query}'。", fg='yellow')
+        return
+
+    if is_json:
+        if strict:
+            click.echo(json.dumps(dict(results[0]), ensure_ascii=False))
+        else:
+            click.echo(json.dumps([dict(r) for r in results], ensure_ascii=False))
+    else:
+        for row in results[:5]:  # 词语较多，限制显示前5个
+            click.secho(f"【{row['ci']}】", fg='cyan', bold=True)
+            click.echo(f"释义: {row['explanation']}")
+            click.echo("-" * 10)
+        
+        if len(results) > 5:
+            click.echo(f"... 共找到 {len(results)} 个结果")
+
+@cli.command()
+@click.argument('query', required=False)
+@click.option('--json', 'is_json', is_flag=True, help='Output in JSON format')
+@click.option('--strict', is_flag=True, help='Strict mode (exact match)')
+@click.option('--stream', is_flag=True, help='Read queries from stdin')
+def ci(query, is_json, strict, stream):
+    """查找词语"""
+    conn = get_db()
+    cursor = conn.cursor()
+    if stream:
+        for line in sys.stdin:
+            q = line.strip()
+            if q: handle_ci(cursor, q, is_json, strict)
+    elif query:
+        handle_ci(cursor, query, is_json, strict)
+    else:
+        click.echo("错误: 请提供查询词或使用 --stream 选项。")
+    conn.close()
+
+def handle_xie(cursor, query, is_json, strict):
+    pattern = query if strict else f"%{query}%"
+    op = "=" if strict else "LIKE"
+    
+    cursor.execute(f"SELECT * FROM xiehouyu WHERE riddle {op} ?", (pattern,))
+    results = cursor.fetchall()
+    
+    if not results:
+        if is_json:
+            click.echo("{}")
+        else:
+            click.secho(f"未找到包含 '{query}' 的歇后语。", fg='yellow')
+        return
+
+    if is_json:
+        if strict:
+            click.echo(json.dumps(dict(results[0]), ensure_ascii=False))
+        else:
+            click.echo(json.dumps([dict(r) for r in results], ensure_ascii=False))
+    else:
+        for row in results[:10]:
+            click.secho(f"{row['riddle']} —— ", nl=False)
+            click.secho(f"{row['answer']}", fg='green', bold=True)
+        
+        if len(results) > 10:
+            click.echo(f"... 共找到 {len(results)} 个结果")
+
+@cli.command()
+@click.argument('query', required=False)
+@click.option('--json', 'is_json', is_flag=True, help='Output in JSON format')
+@click.option('--strict', is_flag=True, help='Strict mode (exact match)')
+@click.option('--stream', is_flag=True, help='Read queries from stdin')
+def xie(query, is_json, strict, stream):
+    """查找歇后语 (搜索谜面)"""
+    conn = get_db()
+    cursor = conn.cursor()
+    if stream:
+        for line in sys.stdin:
+            q = line.strip()
+            if q: handle_xie(cursor, q, is_json, strict)
+    elif query:
+        handle_xie(cursor, query, is_json, strict)
+    else:
+        click.echo("错误: 请提供查询词或使用 --stream 选项。")
+    conn.close()
+
+if __name__ == '__main__':
+    cli()
