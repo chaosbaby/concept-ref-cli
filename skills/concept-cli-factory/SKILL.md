@@ -24,7 +24,10 @@ description: 交互式中文文化数据 CLI 工厂。通过“感知-诊断-构
 
 ### Phase 0: 诊断与感知 (Sensing & Diagnosis)
 1. **目录嗅探**: 扫描项目结构，建立命令与数据目录（如 `sources/lexicon`）的映射。
-2. **数据取样**: 读取 JSON/CSV 的前几行，分析字段结构。
+2. **数据探测 (Token Economy)**: 
+    *   **Size**: 首先执行 `ls -lh` 评估规模。
+    *   **Format**: 使用 `head -c 1024` 或 `file` 判定。如果是单行 JSON，使用 `jq -c 'keys'`。
+    *   **Sample**: 对于大文件，严禁全量读取，必须使用 `rg -o` 提取特征或分页 `read_file`。
 3. **输出报告**: 包含数据规模预估、建议 Schema、发现的额外功能及潜在问题。
 4. **决策点**: 询问用户是否同意诊断结果，并选择首选功能。
 

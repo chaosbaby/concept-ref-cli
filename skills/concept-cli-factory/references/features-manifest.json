@@ -82,7 +82,10 @@
     "status": "recommended",
     "trigger": {
       "type": "field_check",
-      "pattern": "^(rank|freq|tag|len)$"
+      "pattern": "^(rank|freq|tag|len)$",
+      "exclude": {
+        "condition": "no_filterable_metadata"
+      }
     },
     "cli_integration": {
       "command": "search",
@@ -96,7 +99,10 @@
     "description": "通过 --join 实时关联查询不同数据源（如词典关联构件）。",
     "status": "optional",
     "trigger": {
-      "type": "always"
+      "type": "always",
+      "exclude": {
+        "condition": "single_source_only"
+      }
     },
     "cli_integration": {
       "command": "search",
@@ -111,7 +117,10 @@
     "status": "recommended",
     "trigger": {
       "type": "field_check",
-      "pattern": "^(rank|freq|hot)$"
+      "pattern": "^(rank|freq|hot)$",
+      "exclude": {
+        "condition": "no_numeric_heat_field"
+      }
     },
     "cli_integration": {
       "command": "search",
@@ -240,7 +249,10 @@
     "status": "recommended",
     "trigger": {
       "type": "source_pattern",
-      "pattern": ".*\\.json$"
+      "pattern": ".*\\.json$",
+      "exclude": {
+        "condition": "plain_text_simple_source"
+      }
     },
     "cli_integration": {
       "command": "init",

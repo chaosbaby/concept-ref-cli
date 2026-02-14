@@ -4,7 +4,8 @@
   "features": [
     {
       "id": "fts-engine",
-      "status": "implemented"
+      "status": "implemented",
+      "notes": "Enabled high-performance FTS5 with character-level tokenization."
     },
     {
       "id": "pipe-stream",
@@ -12,10 +13,31 @@
     },
     {
       "id": "unified-output-protocol",
-      "status": "implemented"
+      "status": "implemented",
+      "notes": "Partially implemented via --json flag."
     },
     {
       "id": "shell-completion-manager",
+      "status": "implemented"
+    },
+    {
+      "id": "sub-command-isolation",
+      "status": "implemented"
+    },
+    {
+      "id": "schema-reflection",
+      "status": "implemented"
+    },
+    {
+      "id": "doctor-stat",
+      "status": "implemented"
+    },
+    {
+      "id": "rich-render-engine",
+      "status": "implemented"
+    },
+    {
+      "id": "interactive-pick",
       "status": "implemented"
     }
   ]

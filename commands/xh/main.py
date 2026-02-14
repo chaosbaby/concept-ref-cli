@@ -4,6 +4,12 @@ import sqlite3
 import os
 import sys
 import zhconv
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
+console = Console()
 
 # 数据库路径：指向项目根目录下的 data 目录
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -66,41 +72,46 @@ def completion(shell):
     click.echo(cmd)
 
 def handle_search(cursor, query, is_json, strict):
-    results = {}
-    # 统一转简体进行匹配
+    results = {'idioms': [], 'cis': [], 'words': []}
     query = zhconv.convert(query, 'zh-hans')
-    pattern = query if strict else f"%{query}%"
-    op = "=" if strict else "LIKE"
-
-    # 搜索成语
-    cursor.execute(f"SELECT * FROM idiom WHERE word {op} ? OR abbreviation = ? LIMIT 10", (pattern, query))
-    idioms = cursor.fetchall()
-    if idioms:
-        results['idioms'] = [dict(r) for r in idioms]
-        if not is_json:
-            click.secho("\n> 成语:", fg='green')
-            for r in idioms: click.echo(f"  {r['word']}")
-
-    # 搜索词语
-    cursor.execute(f"SELECT * FROM ci WHERE ci {op} ? LIMIT 10", (pattern,))
-    cis = cursor.fetchall()
-    if cis:
-        results['cis'] = [dict(r) for r in cis]
-        if not is_json:
-            click.secho("\n> 词语:", fg='cyan')
-            for r in cis: click.echo(f"  {r['ci']}")
-
-    # 搜索歇后语
-    cursor.execute(f"SELECT * FROM xiehouyu WHERE riddle {op} ? OR answer {op} ? LIMIT 10", (pattern, pattern))
-    xies = cursor.fetchall()
-    if xies:
-        results['xiehouyus'] = [dict(r) for r in xies]
-        if not is_json:
-            click.secho("\n> 歇后语:", fg='magenta')
-            for r in xies: click.echo(f"  {r['riddle']} -> {r['answer']}")
+    
+    if strict:
+        # 严格模式仍使用基础表查询
+        cursor.execute("SELECT * FROM idiom WHERE word = ?", (query,))
+        results['idioms'] = [dict(r) for r in cursor.fetchall()]
+        cursor.execute("SELECT * FROM ci WHERE ci = ?", (query,))
+        results['cis'] = [dict(r) for r in cursor.fetchall()]
+        cursor.execute("SELECT * FROM word WHERE word = ?", (query,))
+        results['words'] = [dict(r) for r in cursor.fetchall()]
+    else:
+        # FTS5 高性能搜索
+        tokenized_query = " ".join(list(query))
+        sql = "SELECT type, source_id FROM fts_xh WHERE fts_xh MATCH ? LIMIT 20"
+        cursor.execute(sql, (f'"{tokenized_query}"',))
+        fts_results = cursor.fetchall()
+        
+        for row in fts_results:
+            t = row['type']
+            sid = row['source_id']
+            if t == 'idiom':
+                cursor.execute("SELECT * FROM idiom WHERE word = ?", (sid,))
+                results['idioms'].append(dict(cursor.fetchone()))
+            elif t == 'ci':
+                cursor.execute("SELECT * FROM ci WHERE ci = ?", (sid,))
+                results['cis'].append(dict(cursor.fetchone()))
+            elif t == 'word':
+                cursor.execute("SELECT * FROM word WHERE word = ?", (sid,))
+                results['words'].append(dict(cursor.fetchone()))
 
     if is_json:
         click.echo(json.dumps(results, ensure_ascii=False))
+    else:
+        for k, v in [('成语', results['idioms']), ('词语', results['cis']), ('汉字', results['words'])]:
+            if v:
+                click.secho(f"\n> {k}:", fg='green' if k=='成语' else 'cyan')
+                for r in v:
+                    name = r.get('word') or r.get('ci')
+                    click.echo(f"  {name}")
 
 @cli.command()
 @click.argument('query', required=False)
@@ -225,9 +236,131 @@ def init(data_dir):
     cursor.execute("CREATE INDEX idx_idiom_pinyin ON idiom(pinyin)")
     cursor.execute("CREATE INDEX idx_word_pinyin ON word(pinyin)")
     
+    # 建立 FTS5 虚拟表
+    click.echo("正在建立 FTS5 全文搜索索引...")
+    cursor.execute("DROP TABLE IF EXISTS fts_xh")
+    cursor.execute("""
+        CREATE VIRTUAL TABLE fts_xh USING fts5(
+            type UNINDEXED,
+            source_id UNINDEXED,
+            content,
+            pinyin,
+            tokenize='unicode61'
+        )
+    """)
+    
+    # 填充 FTS5 数据 - 使用自定义函数进行分词（每个字加空格）
+    click.echo("正在填充全文索引数据...")
+    
+    def tokenize_zh(text):
+        if not text: return ""
+        return " ".join(list(text))
+
+    # 我们需要先获取数据再插入，或者使用 SQLite 函数（但内置函数受限）
+    # 这里采用批量获取并处理的方式
+    cursor.execute("SELECT word, pinyin FROM idiom")
+    cursor.executemany("INSERT INTO fts_xh(type, source_id, content, pinyin) VALUES ('idiom', ?, ?, ?)",
+                       [(r[0], tokenize_zh(r[0]), r[1]) for r in cursor.fetchall()])
+    
+    cursor.execute("SELECT word, pinyin FROM word")
+    cursor.executemany("INSERT INTO fts_xh(type, source_id, content, pinyin) VALUES ('word', ?, ?, ?)",
+                       [(r[0], tokenize_zh(r[0]), r[1]) for r in cursor.fetchall()])
+    
+    cursor.execute("SELECT ci FROM ci")
+    cursor.executemany("INSERT INTO fts_xh(type, source_id, content, pinyin) VALUES ('ci', ?, ?, ?)",
+                       [(r[0], tokenize_zh(r[0]), "") for r in cursor.fetchall()])
+
     conn.commit()
     conn.close()
     click.echo(f"初始化完成！数据库已保存至: {DB_PATH}")
+
+@cli.command()
+def schema():
+    """输出底层数据库字段定义 (Schema Reflection)"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+    tables = cursor.fetchall()
+    
+    click.secho("\n📊 Database Schema Definition\n", fg='cyan', bold=True)
+    for table in tables:
+        table_name = table['name']
+        click.secho(f"Table: {table_name}", fg='green', bold=True)
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        columns = cursor.fetchall()
+        for col in columns:
+            click.echo(f"  - {col['name']:<15} {col['type']}")
+        click.echo("")
+    conn.close()
+
+@cli.command()
+def doctor():
+    """DB 完整性及统计分布检查 (Health Diagnosis)"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    click.secho("\n🩺 Database Health Report\n", fg='cyan', bold=True)
+    
+    tables = ['idiom', 'word', 'ci', 'xiehouyu']
+    total = 0
+    for table in tables:
+        try:
+            cursor.execute(f"SELECT count(*) FROM {table}")
+            count = cursor.fetchone()[0]
+            click.echo(f"  - {table:<10}: {count:>8} records")
+            total += count
+        except sqlite3.OperationalError:
+            click.secho(f"  - {table:<10}: ❌ Missing", fg='red')
+            
+    click.echo("-" * 30)
+    click.secho(f"  Total Records: {total:>8}", bold=True)
+    
+    # DB File size
+    size_mb = os.path.getsize(DB_PATH) / (1024 * 1024)
+    click.echo(f"  Database Size: {size_mb:.2f} MB")
+    
+    conn.close()
+
+@cli.command()
+@click.option('--type', 'entry_type', type=click.Choice(['idiom', 'word', 'ci']), default='idiom')
+def pick(entry_type):
+    """随机灵感捡拾 (Random Inspiration)"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute(f"SELECT * FROM {entry_type} ORDER BY RANDOM() LIMIT 1")
+    row = cursor.fetchone()
+    
+    if row:
+        render_entry(entry_type, dict(row))
+    else:
+        click.echo("数据库为空。")
+    conn.close()
+
+def render_entry(entry_type, data):
+    """使用 rich 渲染词条"""
+    if entry_type == 'idiom':
+        title = f"[bold green]{data['word']}[/bold green] [dim]({data['pinyin']})[/dim]"
+        content = [f"[bold]释义:[/bold] {data['explanation']}"]
+        if data.get('derivation'):
+            content.append(f"[dim][italic]出处:[/italic] {data['derivation']}[/dim]")
+        if data.get('example'):
+            content.append(f"[dim][italic]示例:[/italic] {data['example']}[/dim]")
+        
+        console.print(Panel("\n".join(content), title=title, border_style="green", expand=False))
+    
+    elif entry_type == 'word':
+        title = f"[bold yellow]{data['word']}[/bold yellow] [dim]({data['pinyin']})[/dim]"
+        subtitle = f"部首: {data['radicals']} | 笔画: {data['strokes']}"
+        content = [f"[bold]释义:[/bold]\n{data['explanation']}"]
+        if data.get('more'):
+            content.append(f"\n[bold]更多:[/bold]\n{data['more']}")
+        
+        console.print(Panel("\n".join(content), title=title, subtitle=subtitle, border_style="yellow", expand=False))
+        
+    elif entry_type == 'ci':
+        title = f"[bold cyan]{data['ci']}[/bold cyan]"
+        console.print(Panel(data['explanation'], title=title, border_style="cyan", expand=False))
 
 def handle_idiom(cursor, query, is_json, strict):
     pattern = query if strict else f"{query}%"
@@ -257,14 +390,7 @@ def handle_idiom(cursor, query, is_json, strict):
             click.echo(json.dumps([dict(r) for r in results], ensure_ascii=False))
     else:
         for row in results:
-            click.secho(f"【{row['word']}】", fg='green', bold=True)
-            click.secho(f"拼音: {row['pinyin']}")
-            click.secho(f"释义: {row['explanation']}")
-            if row['derivation']:
-                click.secho(f"出处: {row['derivation']}", dim=True)
-            if row['example']:
-                click.secho(f"示例: {row['example']}", dim=True)
-            click.echo("-" * 20)
+            render_entry('idiom', dict(row))
 
 @cli.command()
 @click.argument('query', required=False)
@@ -300,11 +426,7 @@ def handle_word(cursor, query, is_json):
     if is_json:
         click.echo(json.dumps(dict(row), ensure_ascii=False))
     else:
-        click.secho(f"【{row['word']}】", fg='green', bold=True)
-        click.echo(f"拼音: {row['pinyin']} | 部首: {row['radicals']} | 笔画: {row['strokes']}")
-        click.echo(f"释义:\n{row['explanation']}")
-        if row['more']:
-            click.echo(f"\n更多:\n{row['more']}")
+        render_entry('word', dict(row))
 
 @cli.command()
 @click.argument('query', required=False)
@@ -345,9 +467,7 @@ def handle_ci(cursor, query, is_json, strict):
             click.echo(json.dumps([dict(r) for r in results], ensure_ascii=False))
     else:
         for row in results[:5]:  # 词语较多，限制显示前5个
-            click.secho(f"【{row['ci']}】", fg='cyan', bold=True)
-            click.echo(f"释义: {row['explanation']}")
-            click.echo("-" * 10)
+            render_entry('ci', dict(row))
         
         if len(results) > 5:
             click.echo(f"... 共找到 {len(results)} 个结果")
