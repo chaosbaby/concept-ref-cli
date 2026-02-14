@@ -56,6 +56,7 @@ description: 交互式中文文化数据 CLI 工厂。通过“感知-诊断-构
    - `implemented` 状态应与代码逻辑严格对齐。
 2. **多维过滤 (Filter Matrix)**:
    - 必须支持区间过滤（`min-max`）、集合过滤（`in/not in`）。
+   - **强制补全 (Tag Completion)**: 对于基数（Unique Values）在 100 以下的 Tag 类字段（如朝代、类型、标签），必须实现动态 Shell 补全，以提升交互效率。
 3. **配置持久化 (Configuration)**:
    - 提供 `config` 指令，支持持久化默认输出格式、搜索限制等。
 4. **技术指标**:

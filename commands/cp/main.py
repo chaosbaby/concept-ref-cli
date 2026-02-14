@@ -145,6 +145,24 @@ def get_input_stream(query, stream):
     elif query:
         yield query
 
+def get_dynasty_completions(ctx, param, incomplete):
+    """动态获取朝代补全"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT DISTINCT dynasty FROM poetry WHERE dynasty LIKE ?", (f"{incomplete}%",))
+    values = [row[0] for row in cursor.fetchall() if row[0]]
+    conn.close()
+    return values
+
+def get_type_completions(ctx, param, incomplete):
+    """动态获取类型/来源补全"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT DISTINCT type FROM poetry WHERE type LIKE ?", (f"{incomplete}%",))
+    values = [row[0] for row in cursor.fetchall() if row[0]]
+    conn.close()
+    return values
+
 def handle_search(cursor, query, output_format, dynasty=None, limit=10, show_strains=False, weight_range=None, len_range=None, poetry_type=None):
     params = []
     # 统一转简体进行匹配
@@ -226,8 +244,8 @@ def handle_search(cursor, query, output_format, dynasty=None, limit=10, show_str
 @cli.command()
 @click.argument('query', required=False)
 @click.option('--output', '-o', 'output_format', type=click.Choice(['plain', 'json', 'ndjson', 'show']), help='输出格式')
-@click.option('--dynasty', help='按朝代过滤 (enum: 唐, 宋, 等)')
-@click.option('--type', 'poetry_type', help='按诗歌类型/来源过滤 (enum: 全唐诗, 全宋词, 等)')
+@click.option('--dynasty', help='按朝代过滤 (enum: 唐, 宋, 等)', shell_complete=get_dynasty_completions)
+@click.option('--type', 'poetry_type', help='按诗歌类型/来源过滤 (enum: 全唐诗, 全宋词, 等)', shell_complete=get_type_completions)
 @click.option('--weight', help='按权重区间过滤 (range: 100-, -500, 10-20)')
 @click.option('--len', 'len_range', help='按字数区间过滤 (range: 20-50)')
 @click.option('--limit', type=int, help='结果数量限制')
