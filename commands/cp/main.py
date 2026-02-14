@@ -178,15 +178,138 @@ def author(name):
     conn.close()
 
 @cli.command()
-def random_one():
-    """随机荐诗"""
+@click.option('--count', default=1, help='随机获取的数量')
+def pick(count):
+    """随机灵感捡拾"""
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM poetry ORDER BY RANDOM() LIMIT 1")
-    row = cursor.fetchone()
-    if row:
-        print_poem_plain(row)
+    cursor.execute("SELECT * FROM poetry ORDER BY RANDOM() LIMIT ?", (count,))
+    rows = cursor.fetchall()
+    if rows:
+        for row in rows:
+            print_poem_plain(row)
     conn.close()
+
+@cli.command()
+@click.argument('statement')
+def sql(statement):
+    """执行 SQL 查询 (仅限 SELECT)"""
+    if not statement.lower().strip().startswith("select"):
+        click.secho("❌ 安全限制：仅允许 SELECT 语句。", fg='red')
+        return
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(statement)
+        rows = cursor.fetchall()
+        if rows:
+            # 简单展示结果
+            headers = rows[0].keys()
+            click.secho(" | ".join(headers), bold=True, fg='cyan')
+            click.echo("-" * 40)
+            for r in rows:
+                click.echo(" | ".join([str(v) for v in r]))
+        else:
+            click.echo("无结果。")
+    except Exception as e:
+        click.secho(f"❌ SQL 错误: {e}", fg='red')
+    finally:
+        conn.close()
+
+@cli.command()
+@click.argument('action', type=click.Choice(['show', 'install']))
+@click.pass_context
+def completion(ctx, action):
+    """Shell 补全管理器"""
+    shell = os.environ.get('SHELL', '').split('/')[-1]
+    if shell not in ['bash', 'zsh', 'fish']:
+        shell = 'bash'
+    
+    # Click 规范：环境变量名需大写，且对于 zsh 建议增加 unsetopt nomatch 防止通配报错
+    env_var = f"_{'CPT'}_COMPLETE"
+    cmd = f"{env_var}={shell}_source cpt"
+    
+    if action == 'show':
+        click.echo(f"# Run this to enable completion for {shell}:")
+        if shell == 'zsh':
+            click.echo(f'unsetopt nomatch 2>/dev/null; eval "$({cmd})"; setopt nomatch 2>/dev/null')
+        else:
+            click.echo(f'eval "$({cmd})"')
+    else:
+        rc_map = {'bash': '.bashrc', 'zsh': '.zshrc', 'fish': '.config/fish/config.fish'}
+        rc_path = Path.home() / rc_map.get(shell, '.bashrc')
+        
+        if shell == 'zsh':
+            line = f'unsetopt nomatch 2>/dev/null; eval "$({cmd})"; setopt nomatch 2>/dev/null'
+        else:
+            line = f'eval "$({cmd})"'
+        
+        if rc_path.exists():
+            with open(rc_path, 'r') as f:
+                if line in f.read():
+                    click.echo("✅ 补全已存在。")
+                    return
+            with open(rc_path, 'a') as f:
+                f.write(f"\n{line}\n")
+            click.echo(f"✅ 已注入补全到 {rc_path}，请重启 Shell 或执行 source {rc_path}")
+        else:
+            click.secho(f"❌ 未找到配置文件: {rc_path}", fg='red')
+
+@cli.command()
+def doctor():
+    """数据库健康诊断"""
+    if not os.path.exists(DB_PATH):
+        click.secho(f"❌ 数据库文件不存在: {DB_PATH}", fg='red')
+        return
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    click.secho(f"🚀 正在诊断数据库: {DB_PATH}", fg='cyan', bold=True)
+    
+    try:
+        cursor.execute("SELECT count(*) FROM poetry")
+        p_count = cursor.fetchone()[0]
+        cursor.execute("SELECT count(*) FROM authors")
+        a_count = cursor.fetchone()[0]
+        cursor.execute("SELECT count(*) FROM poetry WHERE weight > 0")
+        w_count = cursor.fetchone()[0]
+        
+        click.echo(f"  - 诗词总数: {p_count}")
+        click.echo(f"  - 作者总数: {a_count}")
+        click.echo(f"  - 已关联热度: {w_count}")
+        
+        cursor.execute("PRAGMA integrity_check")
+        status = cursor.fetchone()[0]
+        st_color = 'green' if status == 'ok' else 'red'
+        click.echo(f"  - 完整性检查: ", nl=False)
+        click.secho(status, fg=st_color)
+    except Exception as e:
+        click.secho(f"❌ 诊断失败: {e}", fg='red')
+    finally:
+        conn.close()
+
+@cli.command()
+def schema():
+    """输出底层数据库字段定义"""
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='poetry'")
+        row = cursor.fetchone()
+        if row:
+            click.secho("\n--- Poetry Table Schema ---", fg='cyan')
+            click.echo(row[0])
+            
+        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='poetry_fts'")
+        row = cursor.fetchone()
+        if row:
+            click.secho("\n--- FTS5 Index Schema ---", fg='cyan')
+            click.echo(row[0])
+    except Exception as e:
+        click.secho(f"❌ 获取 Schema 失败: {e}", fg='red')
+    finally:
+        conn.close()
 
 @cli.command()
 @click.option('--poetry-dir', default='sources/chinese-poetry', help='数据目录')
@@ -259,6 +382,7 @@ def init(poetry_dir):
                         t_s = zhconv.convert(t, 'zh-hans')
                         a_s = zhconv.convert(i.get('author', '佚名'), 'zh-hans')
                         c_s = zhconv.convert(c, 'zh-hans')
+                        fp = get_fingerprint(c_s)
                         
                         # 深度去重逻辑
                         # 1. 对于“无题”、“句”等占位类标题，结合内容指纹去重，防止误删不同作品

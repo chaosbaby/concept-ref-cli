@@ -17,6 +17,30 @@
     {
       "id": "rich-render-engine",
       "status": "implemented"
+    },
+    {
+      "id": "schema-reflection",
+      "status": "implemented"
+    },
+    {
+      "id": "doctor-stat",
+      "status": "implemented"
+    },
+    {
+      "id": "shell-completion-manager",
+      "status": "implemented"
+    },
+    {
+      "id": "direct-sql",
+      "status": "implemented"
+    },
+    {
+      "id": "pipe-stream",
+      "status": "implemented"
+    },
+    {
+      "id": "unified-output-protocol",
+      "status": "implemented"
     }
   ]
 }
