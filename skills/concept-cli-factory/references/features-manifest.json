@@ -1,5 +1,109 @@
 [
   {
+    "id": "auto-completion-engine",
+    "category": "UX",
+    "label": "内建补全引擎",
+    "description": "毫秒级前缀匹配补全接口。",
+    "status": "recommended",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "complete",
+      "flags": []
+    },
+    "rank": 80
+  },
+  {
+    "id": "batch-loader",
+    "category": "Data",
+    "label": "工业级加载器",
+    "description": "多线程加载大规模碎片 JSON/TSV。",
+    "status": "recommended",
+    "trigger": {
+      "type": "source_pattern",
+      "pattern": ".*\\.json$",
+      "exclude": {
+        "condition": "plain_text_simple_source"
+      }
+    },
+    "cli_integration": {
+      "command": "init",
+      "flags": [
+        "--batch-size"
+      ]
+    },
+    "rank": 70
+  },
+  {
+    "id": "config-manager",
+    "category": "UX",
+    "label": "配置管理",
+    "description": "持久化用户默认参数，支持默认过滤条件设置。",
+    "status": "optional",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "config",
+      "flags": [
+        "set",
+        "get"
+      ]
+    },
+    "rank": 80
+  },
+  {
+    "id": "cross-ref-join",
+    "category": "Retrieval",
+    "label": "跨源关联引用",
+    "description": "通过 --join 实时关联查询不同数据源（如词典关联构件）。",
+    "status": "optional",
+    "trigger": {
+      "type": "always",
+      "exclude": {
+        "condition": "single_source_only"
+      }
+    },
+    "cli_integration": {
+      "command": "search",
+      "flags": [
+        "--join"
+      ]
+    },
+    "rank": 40
+  },
+  {
+    "id": "direct-sql",
+    "category": "Expert",
+    "label": "SQL 直连",
+    "description": "直接执行 SQLite 语句。",
+    "status": "optional",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "sql",
+      "flags": []
+    },
+    "rank": 80
+  },
+  {
+    "id": "doctor-stat",
+    "category": "Maintenance",
+    "label": "健康诊断",
+    "description": "DB 完整性及统计分布检查。",
+    "status": "mandatory",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "doctor",
+      "flags": []
+    },
+    "rank": 90
+  },
+  {
     "id": "fts-engine",
     "category": "Core",
     "label": "FTS5 全文索引",
@@ -10,7 +114,103 @@
     },
     "cli_integration": {
       "command": "search",
-      "flags": ["--limit", "--field"]
+      "flags": [
+        "--limit",
+        "--field"
+      ]
+    },
+    "rank": 100
+  },
+  {
+    "id": "incremental-sync",
+    "rank": 95,
+    "category": "Data",
+    "label": "增量同步引擎",
+    "description": "基于 Hash 校验的增量数据更新机制。",
+    "status": "recommended",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "update",
+      "flags": []
+    }
+  },
+  {
+    "id": "interactive-pick",
+    "category": "UX",
+    "label": "随机灵感捡拾",
+    "description": "随机返回高质量词条。",
+    "status": "optional",
+    "trigger": {
+      "type": "volume_check",
+      "min_records": 1000
+    },
+    "cli_integration": {
+      "command": "pick",
+      "flags": [
+        "--count"
+      ]
+    },
+    "rank": 60
+  },
+  {
+    "id": "multi-layer-dedup",
+    "category": "Data",
+    "label": "多层去重",
+    "description": "在加载时基于指纹自动去重。",
+    "status": "recommended",
+    "trigger": {
+      "type": "conflict_risk",
+      "condition": "duplicate_keys"
+    },
+    "cli_integration": {
+      "command": "init",
+      "flags": [
+        "--dedup"
+      ]
+    },
+    "rank": 70
+  },
+  {
+    "id": "param-filtering",
+    "category": "Retrieval",
+    "label": "多维参数过滤",
+    "description": "支持按词长、频率、标签进行区间过滤（如 1-5, 100-）。",
+    "status": "recommended",
+    "trigger": {
+      "type": "field_check",
+      "pattern": "^(rank|freq|tag|len)$",
+      "exclude": {
+        "condition": "no_filterable_metadata"
+      }
+    },
+    "cli_integration": {
+      "command": "search",
+      "flags": [
+        "--rank",
+        "--len",
+        "--tag",
+        "--no-tag"
+      ]
+    },
+    "rank": 80
+  },
+  {
+    "id": "pinyin-search",
+    "rank": 85,
+    "category": "Retrieval",
+    "label": "拼音模糊搜索",
+    "description": "支持全拼/首字母跨语言检索。",
+    "status": "recommended",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "search",
+      "flags": [
+        "--pinyin"
+      ]
     }
   },
   {
@@ -24,22 +224,33 @@
     },
     "cli_integration": {
       "command": "search",
-      "flags": ["--stdin", "-"]
-    }
+      "flags": [
+        "--stdin",
+        "-"
+      ]
+    },
+    "rank": 100
   },
   {
-    "id": "unified-output-protocol",
-    "category": "Interop",
-    "label": "标准输出协议",
-    "description": "支持 show(精装), plain(原味), json(数组), ndjson(流式) 四大模式。",
-    "status": "mandatory",
+    "id": "rank-sorting",
+    "category": "Retrieval",
+    "label": "权重智能排序",
+    "description": "根据热度字段自动优化结果顺序。",
+    "status": "recommended",
     "trigger": {
-      "type": "always"
+      "type": "field_check",
+      "pattern": "^(rank|freq|hot)$",
+      "exclude": {
+        "condition": "no_numeric_heat_field"
+      }
     },
     "cli_integration": {
       "command": "search",
-      "flags": ["-o show", "-o plain", "-o json", "-o ndjson"]
-    }
+      "flags": [
+        "--sort"
+      ]
+    },
+    "rank": 80
   },
   {
     "id": "rich-render-engine",
@@ -57,175 +268,11 @@
     },
     "cli_integration": {
       "command": "search",
-      "flags": ["-o show"]
-    }
-  },
-  {
-    "id": "sub-command-isolation",
-    "category": "Architecture",
-    "label": "子命令隔离",
-    "description": "不同功能源拥有独立命令空间（如 lexicon dict）。",
-    "status": "mandatory",
-    "trigger": {
-      "type": "always"
+      "flags": [
+        "-o show"
+      ]
     },
-    "cli_integration": {
-      "command": "<source>",
-      "flags": ["search"]
-    }
-  },
-  {
-    "id": "param-filtering",
-    "category": "Retrieval",
-    "label": "多维参数过滤",
-    "description": "支持按词长、频率、标签进行区间过滤（如 1-5, 100-）。",
-    "status": "recommended",
-    "trigger": {
-      "type": "field_check",
-      "pattern": "^(rank|freq|tag|len)$",
-      "exclude": {
-        "condition": "no_filterable_metadata"
-      }
-    },
-    "cli_integration": {
-      "command": "search",
-      "flags": ["--rank", "--len", "--tag", "--no-tag"]
-    }
-  },
-  {
-    "id": "cross-ref-join",
-    "category": "Retrieval",
-    "label": "跨源关联引用",
-    "description": "通过 --join 实时关联查询不同数据源（如词典关联构件）。",
-    "status": "optional",
-    "trigger": {
-      "type": "always",
-      "exclude": {
-        "condition": "single_source_only"
-      }
-    },
-    "cli_integration": {
-      "command": "search",
-      "flags": ["--join"]
-    }
-  },
-  {
-    "id": "rank-sorting",
-    "category": "Retrieval",
-    "label": "权重智能排序",
-    "description": "根据热度字段自动优化结果顺序。",
-    "status": "recommended",
-    "trigger": {
-      "type": "field_check",
-      "pattern": "^(rank|freq|hot)$",
-      "exclude": {
-        "condition": "no_numeric_heat_field"
-      }
-    },
-    "cli_integration": {
-      "command": "search",
-      "flags": ["--sort"]
-    }
-  },
-  {
-    "id": "multi-layer-dedup",
-    "category": "Data",
-    "label": "多层去重",
-    "description": "在加载时基于指纹自动去重。",
-    "status": "recommended",
-    "trigger": {
-      "type": "conflict_risk",
-      "condition": "duplicate_keys"
-    },
-    "cli_integration": {
-      "command": "init",
-      "flags": ["--dedup"]
-    }
-  },
-  {
-    "id": "shell-completion-manager",
-    "category": "UX",
-    "label": "补全管理器",
-    "description": "提供 show (源码展示) 和 install (自动注入) 功能。",
-    "status": "mandatory",
-    "trigger": {
-      "type": "always"
-    },
-    "cli_integration": {
-      "command": "completion",
-      "flags": ["show", "install"]
-    }
-  },
-  {
-    "id": "auto-completion-engine",
-    "category": "UX",
-    "label": "内建补全引擎",
-    "description": "毫秒级前缀匹配补全接口。",
-    "status": "recommended",
-    "trigger": {
-      "type": "always"
-    },
-    "cli_integration": {
-      "command": "complete",
-      "flags": []
-    }
-  },
-  {
-    "id": "config-manager",
-    "category": "UX",
-    "label": "配置管理",
-    "description": "持久化用户默认参数，支持默认过滤条件设置。",
-    "status": "optional",
-    "trigger": {
-      "type": "always"
-    },
-    "cli_integration": {
-      "command": "config",
-      "flags": ["set", "get"]
-    }
-  },
-  {
-    "id": "interactive-pick",
-    "category": "UX",
-    "label": "随机灵感捡拾",
-    "description": "随机返回高质量词条。",
-    "status": "optional",
-    "trigger": {
-      "type": "volume_check",
-      "min_records": 1000
-    },
-    "cli_integration": {
-      "command": "pick",
-      "flags": ["--count"]
-    }
-  },
-  {
-    "id": "direct-sql",
-    "category": "Expert",
-    "label": "SQL 直连",
-    "description": "直接执行 SQLite 语句。",
-    "status": "optional",
-    "trigger": {
-      "type": "always"
-    },
-    "cli_integration": {
-      "command": "sql",
-      "flags": []
-    }
-  },
-  {
-    "id": "doctor-stat",
-    "category": "Maintenance",
-    "label": "健康诊断",
-    "description": "DB 完整性及统计分布检查。",
-    "status": "mandatory",
-    "trigger": {
-      "type": "always"
-    },
-    "cli_integration": {
-      "command": "doctor",
-      "flags": []
-    }
+    "rank": 80
   },
   {
     "id": "schema-reflection",
@@ -239,24 +286,94 @@
     "cli_integration": {
       "command": "schema",
       "flags": []
+    },
+    "rank": 90
+  },
+  {
+    "id": "serve-mode",
+    "rank": 65,
+    "category": "Expert",
+    "label": "服务桥接模式",
+    "description": "一键将 CLI 搜索能力暴露为 Web API。",
+    "status": "optional",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "serve",
+      "flags": [
+        "--port"
+      ]
     }
   },
   {
-    "id": "batch-loader",
-    "category": "Data",
-    "label": "工业级加载器",
-    "description": "多线程加载大规模碎片 JSON/TSV。",
-    "status": "recommended",
+    "id": "shell-completion-manager",
+    "category": "UX",
+    "label": "补全管理器",
+    "description": "提供 show (源码展示) 和 install (自动注入) 功能。",
+    "status": "mandatory",
     "trigger": {
-      "type": "source_pattern",
-      "pattern": ".*\\.json$",
-      "exclude": {
-        "condition": "plain_text_simple_source"
-      }
+      "type": "always"
     },
     "cli_integration": {
-      "command": "init",
-      "flags": ["--batch-size"]
+      "command": "completion",
+      "flags": [
+        "show",
+        "install"
+      ]
+    },
+    "rank": 90
+  },
+  {
+    "id": "sub-command-isolation",
+    "category": "Architecture",
+    "label": "子命令隔离",
+    "description": "不同功能源拥有独立命令空间（如 lexicon dict）。",
+    "status": "mandatory",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "<source>",
+      "flags": [
+        "search"
+      ]
+    },
+    "rank": 100
+  },
+  {
+    "id": "tui-browser",
+    "rank": 75,
+    "category": "UX",
+    "label": "交互式浏览器",
+    "description": "集成 TUI 列表，支持上下选择与详情翻阅。",
+    "status": "optional",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "browse",
+      "flags": []
     }
+  },
+  {
+    "id": "unified-output-protocol",
+    "category": "Interop",
+    "label": "标准输出协议",
+    "description": "支持 show(精装), plain(原味), json(数组), ndjson(流式) 四大模式。",
+    "status": "mandatory",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "search",
+      "flags": [
+        "-o show",
+        "-o plain",
+        "-o json",
+        "-o ndjson"
+      ]
+    },
+    "rank": 100
   }
 ]

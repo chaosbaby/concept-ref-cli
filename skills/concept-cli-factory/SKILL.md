@@ -52,6 +52,7 @@ description: 交互式中文文化数据 CLI 工厂。通过“感知-诊断-构
 
 1. **特性驱动 (Feature-Driven)**: 
    - `features` 命令必须实时反映 `features-manifest.json` 中的状态。
+   - **权重排序 (Ranked Display)**: 输出必须根据 `rank` 字段从高到低排列，优先展示核心与高价值特性。
    - 状态词：`implemented` (✅ OK), `recommended`/`optional` (⚪ OPT), `na` (🚫 N/A - 抵触/不兼容)。
    - `implemented` 状态应与代码逻辑严格对齐。
    - **高亮展示 (Search Highlighting)**: 在 `-o show` 模式下，输出内容必须对搜索关键词（Query）进行视觉高亮处理，并配合颜色排版。而在 `-o plain` 模式下，严禁包含任何 ANSI 颜色或排版装饰，仅输出纯文本。
@@ -68,6 +69,11 @@ description: 交互式中文文化数据 CLI 工厂。通过“感知-诊断-构
        3. `json`: 标准 JSON 数组格式 `[...]`。
        4. `ndjson`: 换行符分隔的 JSON 对象流格式，每行一个对象。
      - **Stream**: `sys.stdin` 必须能处理 `search` 查询流。
+5. **JSON 数据维护协议 (JSON Update Protocol)**:
+   - **禁止全量重写 (No Blind Overwrite)**: 更新时必须先读取当前内容，在内存中原子合并后再写回，防止字段丢失。
+   - **Schema 校验 (Schema Guard)**: 写回前强制执行关键字段（id, rank 等）的完整性校验。
+   - **规范化排序 (Canonical Sorting)**: 强制使用 `jq 'sort_by(.id)'` 对存储文件进行排序，以确保 Git Diff 的最小化。
+   - **变更审计 (Audit)**: 完成后必须执行 diff 检查并简报差异。
    ## 4. 目录真理源 (Directory Mapping)
 - **Source of Truth**: `skills/concept-cli-factory/`
 - **Mapping**: `.gemini/skills/concept-cli-factory` 为软连接。

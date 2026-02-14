@@ -48,3 +48,11 @@
 
 ### 4. 管道流协议 (Pipe-Stream)
 `search` 指令必须支持 `stdin` 作为输入源（通常使用 `-` 参数或 `--stdin` 标志）。
+
+### 5. JSON 更新协议 (JSON Update Protocol)
+在维护 `features-manifest.json` 或其他持久化 JSON 数据时，必须遵守：
+1. **禁止全量覆盖**: 更新前必须执行 `read_file`。
+2. **原子合并**: 使用字典更新/列表映射逻辑，保留未修改的原始字段（如 `trigger`, `integration`）。
+3. **数据校验**: 写回前确保关键字段（id, rank 等）符合 Schema 要求。
+4. **规范化排序**: 存储前强制使用 `jq 'sort_by(.id)'` 排序，确保 Git 记录的稳定性。
+5. **变更审计**: 操作完成后需简报 diff 差异，禁止静默删除字段。

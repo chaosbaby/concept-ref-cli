@@ -73,6 +73,9 @@ def features(status):
     if not global_manifest_path.exists(): click.secho("❌ Global Manifest missing.", fg='red'); return
     with open(global_manifest_path, 'r') as f: manifest = json.load(f)
     
+    # 根据 Rank 降序排列
+    manifest = sorted(manifest, key=lambda x: x.get('rank', 0), reverse=True)
+    
     click.secho("\n🚀 Poetry Integrated Feature Matrix\n", fg='cyan', bold=True)
     click.echo(f" {'STATUS':<10} | {'FEATURE':<20} | {'DESCRIPTION'}")
     click.echo("-" * 80)
