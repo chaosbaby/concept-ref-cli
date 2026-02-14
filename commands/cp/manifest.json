@@ -1,0 +1,22 @@
+{
+  "command": "cpt",
+  "data_context": "sources/chinese-poetry",
+  "features": [
+    {
+      "id": "fts-engine",
+      "status": "implemented"
+    },
+    {
+      "id": "rank-sorting",
+      "status": "implemented"
+    },
+    {
+      "id": "interactive-pick",
+      "status": "implemented"
+    },
+    {
+      "id": "rich-render-engine",
+      "status": "implemented"
+    }
+  ]
+}

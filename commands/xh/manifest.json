@@ -1,0 +1,22 @@
+{
+  "command": "xh",
+  "data_context": "sources/xinhua-json",
+  "features": [
+    {
+      "id": "fts-engine",
+      "status": "implemented"
+    },
+    {
+      "id": "pipe-stream",
+      "status": "implemented"
+    },
+    {
+      "id": "unified-output-protocol",
+      "status": "implemented"
+    },
+    {
+      "id": "shell-completion-manager",
+      "status": "implemented"
+    }
+  ]
+}

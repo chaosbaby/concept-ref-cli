@@ -8,7 +8,7 @@ import zhconv
 from pathlib import Path
 
 # 数据库路径：指向项目根目录下的 data 目录
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DB_PATH = os.path.join(BASE_DIR, "data", "cp_poetry.db")
 
 def get_db():
@@ -16,10 +16,41 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
+def get_manifest():
+    manifest_path = Path(__file__).parent / "manifest.json"
+    if manifest_path.exists():
+        with open(manifest_path, 'r') as f:
+            return json.load(f)
+    return {"features": []}
+
 @click.group()
 def cli():
     """中华诗歌 CLI 工具 - 高性能修正版"""
     pass
+
+@cli.command()
+@click.option('--status', type=click.Choice(['ok', 'miss', 'opt']), help='Filter by status')
+def features(status):
+    """Display the full Capability Matrix with accurate status."""
+    global_manifest_path = Path("skills/concept-cli-factory/references/features-manifest.json")
+    local_manifest = get_manifest()
+    
+    if not global_manifest_path.exists(): click.secho("❌ Global Manifest missing.", fg='red'); return
+    with open(global_manifest_path, 'r') as f: manifest = json.load(f)
+    
+    click.secho("\n🚀 Poetry Integrated Feature Matrix\n", fg='cyan', bold=True)
+    click.echo(f" {'STATUS':<10} | {'FEATURE':<20} | {'DESCRIPTION'}")
+    click.echo("-" * 80)
+    for feat in manifest:
+        f_id = feat['id']
+        local_feat = next((f for f in local_manifest.get('features', []) if f['id'] == f_id), None)
+        f_status = local_feat['status'] if local_feat else ('miss' if feat.get('status') == 'mandatory' else 'opt')
+        
+        if status and f_status != status: continue
+        
+        st = click.style("✅ OK", fg='green') if f_status == 'implemented' else (click.style("❌ MISSING", fg='red') if f_status == 'miss' else click.style("⚪ OPT", fg='yellow'))
+        click.echo(f" {st:<19} | {feat['label']:<20} | {feat['description']}")
+    click.echo("")
 
 def print_poem_plain(r, show_strains=False):
     """人类易读的彩色排版"""

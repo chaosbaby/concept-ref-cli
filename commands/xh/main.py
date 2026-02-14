@@ -6,7 +6,7 @@ import sys
 import zhconv
 
 # 数据库路径：指向项目根目录下的 data 目录
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DB_PATH = os.path.join(BASE_DIR, "data", "xh_xinhua.db")
 
 def get_db():
@@ -14,15 +14,48 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
+from pathlib import Path
+
+def get_manifest():
+    manifest_path = Path(__file__).parent / "manifest.json"
+    if manifest_path.exists():
+        with open(manifest_path, 'r') as f:
+            return json.load(f)
+    return {"features": []}
+
 @click.group()
 def cli():
     """中华新华字典 CLI 查找工具"""
     # 如果数据库不存在且不是调用 init 命令，则提示或自动初始化
-    if not os.path.exists(DB_PATH) and sys.argv[-1] != 'init':
+    if not os.path.exists(DB_PATH) and len(sys.argv) > 1 and sys.argv[1] != 'init':
         click.secho("数据库未初始化，正在自动执行初始化...", fg='cyan')
         ctx = click.get_current_context()
         ctx.invoke(init)
     pass
+
+@cli.command()
+@click.option('--status', type=click.Choice(['ok', 'miss', 'opt']), help='Filter by status')
+def features(status):
+    """Display the full Capability Matrix with accurate status."""
+    global_manifest_path = Path("skills/concept-cli-factory/references/features-manifest.json")
+    local_manifest = get_manifest()
+    
+    if not global_manifest_path.exists(): click.secho("❌ Global Manifest missing.", fg='red'); return
+    with open(global_manifest_path, 'r') as f: manifest = json.load(f)
+    
+    click.secho("\n🚀 Xinhua Integrated Feature Matrix\n", fg='cyan', bold=True)
+    click.echo(f" {'STATUS':<10} | {'FEATURE':<20} | {'DESCRIPTION'}")
+    click.echo("-" * 80)
+    for feat in manifest:
+        f_id = feat['id']
+        local_feat = next((f for f in local_manifest.get('features', []) if f['id'] == f_id), None)
+        f_status = local_feat['status'] if local_feat else ('miss' if feat.get('status') == 'mandatory' else 'opt')
+        
+        if status and f_status != status: continue
+        
+        st = click.style("✅ OK", fg='green') if f_status == 'implemented' else (click.style("❌ MISSING", fg='red') if f_status == 'miss' else click.style("⚪ OPT", fg='yellow'))
+        click.echo(f" {st:<19} | {feat['label']:<20} | {feat['description']}")
+    click.echo("")
 
 @cli.command()
 @click.argument('shell', type=click.Choice(['bash', 'zsh', 'fish']))

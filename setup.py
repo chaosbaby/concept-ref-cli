@@ -4,17 +4,26 @@ import os
 def find_commands():
     """
     Auto-detect command scripts and map them to short aliases.
-    Standard mapping:
-    - lexicon.py / lxc.py -> lxc
-    - cp.py -> cpt
-    - xh.py -> xh
+    Supports:
+    - single file: commands/name.py
+    - package folder: commands/name/main.py
     """
     cmds = {}
     cmd_dir = "commands"
     if os.path.exists(cmd_dir):
-        for f in os.listdir(cmd_dir):
-            if f.endswith(".py") and not f.startswith("__"):
-                module_name = f[:-3]
+        for entry in os.listdir(cmd_dir):
+            path = os.path.join(cmd_dir, entry)
+            module_name = None
+            entry_point = None
+
+            if os.path.isfile(path) and entry.endswith(".py") and not entry.startswith("__"):
+                module_name = entry[:-3]
+                entry_point = f"commands.{module_name}:cli"
+            elif os.path.isdir(path) and os.path.exists(os.path.join(path, "main.py")):
+                module_name = entry
+                entry_point = f"commands.{module_name}.main:cli"
+
+            if module_name:
                 # Priority Mapping
                 if module_name in ["lexicon", "lxc"]:
                     cmd_name = "lxc"
@@ -23,7 +32,7 @@ def find_commands():
                 else:
                     cmd_name = module_name
                 
-                cmds[cmd_name] = f"commands.{module_name}:cli"
+                cmds[cmd_name] = entry_point
     return cmds
 
 setup(
