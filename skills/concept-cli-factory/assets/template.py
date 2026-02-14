@@ -180,5 +180,66 @@ def init(data):
     cursor.execute("CREATE INDEX idx_comp_pk ON completion_table(pk, rank DESC)")
     conn.commit(); conn.close()
 
+import unicodedata
+
+def get_display_width(s):
+    """Calculate the actual display width of a string (considering CJK characters)."""
+    width = 0
+    for char in s:
+        if unicodedata.east_asian_width(char) in ('W', 'F'):
+            width += 2
+        else:
+            width += 1
+    return width
+
+def pad_cjk(s, width):
+    """Pad string considering CJK width."""
+    d_width = get_display_width(s)
+    return s + " " * max(0, width - d_width)
+
+def get_manifest():
+    manifest_path = Path(__file__).parent / "manifest.json"
+    if manifest_path.exists():
+        with open(manifest_path, 'r') as f:
+            return json.load(f)
+    return {"features": []}
+
+@cli.command()
+@click.option('--status', type=click.Choice(['ok', 'miss', 'opt']), help='Filter by status')
+def features(status):
+    """Display the full Capability Matrix with accurate status."""
+    global_manifest_path = Path("skills/concept-cli-factory/references/features-manifest.json")
+    local_manifest = get_manifest()
+    
+    if not global_manifest_path.exists(): click.secho("❌ Global Manifest missing.", fg='red'); return
+    with open(global_manifest_path, 'r') as f: manifest = json.load(f)
+    
+    click.secho(f"\n🚀 {manifest.get('command', 'Tool').capitalize()} Integrated Feature Matrix\n", fg='cyan', bold=True)
+    click.echo(f" {'STATUS':<10} | {'FEATURE':<20} | {'DESCRIPTION'}")
+    click.echo("-" * 90)
+    
+    for feat in manifest:
+        f_id = feat['id']
+        local_feat = next((f for f in local_manifest.get('features', []) if f['id'] == f_id), None)
+        f_status = local_feat['status'] if local_feat else ('miss' if feat.get('status') == 'mandatory' else 'opt')
+        
+        if status and f_status != status: continue
+        
+        if f_status == 'implemented':
+            st_text, st_color, dim = "✅ OK", "green", False
+        elif f_status == 'na':
+            st_text, st_color, dim = "🚫 N/A", "red", True
+        elif f_status == 'miss':
+            st_text, st_color, dim = "❌ MISSING", "red", False
+        else:
+            st_text, st_color, dim = "⚪ OPT", "yellow", False
+            
+        st_styled = click.style(st_text, fg=st_color, dim=dim)
+        st_padding = " " * (10 - get_display_width(st_text))
+        feat_label = pad_cjk(feat['label'], 20)
+        
+        click.echo(f" {st_styled}{st_padding} | {feat_label} | {feat['description']}")
+    click.echo("")
+
 if __name__ == '__main__':
     cli()
