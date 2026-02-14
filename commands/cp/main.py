@@ -10,6 +10,29 @@ from pathlib import Path
 # 数据库路径：指向项目根目录下的 data 目录
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DB_PATH = os.path.join(BASE_DIR, "data", "cp_poetry.db")
+CONFIG_PATH = os.path.expanduser("~/.cpt.json")
+
+class ConfigManager:
+    DEFAULT_CONFIG = {
+        "output": "plain",
+        "limit": 10,
+        "dynasty": None
+    }
+    
+    @staticmethod
+    def load():
+        if os.path.exists(CONFIG_PATH):
+            with open(CONFIG_PATH, 'r') as f:
+                cfg = json.load(f)
+                for k, v in ConfigManager.DEFAULT_CONFIG.items():
+                    if k not in cfg: cfg[k] = v
+                return cfg
+        return ConfigManager.DEFAULT_CONFIG.copy()
+
+    @staticmethod
+    def save(config):
+        with open(CONFIG_PATH, 'w') as f:
+            json.dump(config, f, indent=2)
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -22,6 +45,18 @@ def get_manifest():
         with open(manifest_path, 'r') as f:
             return json.load(f)
     return {"features": []}
+
+def parse_range(range_str):
+    """解析区间字符串，如 '100-', '-500', '10-20'"""
+    if not range_str: return None, None
+    if '-' not in range_str:
+        try: return int(range_str), int(range_str)
+        except: return None, None
+    
+    parts = range_str.split('-')
+    start = int(parts[0]) if parts[0] else None
+    end = int(parts[1]) if parts[1] else None
+    return start, end
 
 @click.group()
 def cli():
@@ -85,7 +120,7 @@ def output_result(rows, output_format, show_strains=False):
     elif output_format == 'ndjson':
         for r in rows:
             click.echo(json.dumps(dict(r), ensure_ascii=False))
-    else: # plain
+    else: # plain or show
         if not rows:
             click.secho("未找到结果。", fg='yellow')
             return
@@ -101,24 +136,57 @@ def output_result(rows, output_format, show_strains=False):
                 click.echo(f" {r['author']} ({r['dynasty']}){weight_tag} - ", nl=False)
                 click.secho(summary, dim=True)
 
-def handle_search(cursor, query, output_format, dynasty=None, limit=10, show_strains=False):
+def get_input_stream(query, stream):
+    """统一输入流处理器"""
+    if stream:
+        for line in sys.stdin:
+            q = line.strip()
+            if q: yield q
+    elif query:
+        yield query
+
+def handle_search(cursor, query, output_format, dynasty=None, limit=10, show_strains=False, weight_range=None, len_range=None, poetry_type=None):
     params = []
     # 统一转简体进行匹配
     query = zhconv.convert(query, 'zh-hans')
     
+    # 基础过滤条件构建
+    where_clauses = []
+    
     # 尝试 FTS5 全文搜索
-    sql = """
-        SELECT poetry.* FROM poetry_fts 
-        JOIN poetry ON poetry.id = poetry_fts.rowid 
-        WHERE poetry_fts MATCH ?
-    """
-    params.append(query)
+    if query:
+        where_clauses.append("poetry.id IN (SELECT rowid FROM poetry_fts WHERE poetry_fts MATCH ?)")
+        params.append(query)
     
     if dynasty:
-        sql += " AND poetry.dynasty = ?"
+        where_clauses.append("poetry.dynasty = ?")
         params.append(dynasty)
         
-    sql += " ORDER BY poetry.weight DESC, poetry.id ASC LIMIT ?"
+    if poetry_type:
+        where_clauses.append("poetry.type = ?")
+        params.append(poetry_type)
+        
+    if weight_range:
+        start, end = parse_range(weight_range)
+        if start is not None:
+            where_clauses.append("poetry.weight >= ?")
+            params.append(start)
+        if end is not None:
+            where_clauses.append("poetry.weight <= ?")
+            params.append(end)
+
+    if len_range:
+        start, end = parse_range(len_range)
+        if start is not None:
+            where_clauses.append("LENGTH(poetry.content) >= ?")
+            params.append(start)
+        if end is not None:
+            where_clauses.append("LENGTH(poetry.content) <= ?")
+            params.append(end)
+
+    where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+    
+    sql = f"SELECT * FROM poetry {where_sql} ORDER BY weight DESC, id ASC LIMIT ?"
     params.append(limit)
     
     try:
@@ -127,14 +195,28 @@ def handle_search(cursor, query, output_format, dynasty=None, limit=10, show_str
     except sqlite3.OperationalError:
         rows = []
 
-    # 如果 FTS5 没搜到，或者是语法错误，Fallback 到 LIKE 搜索
-    if not rows:
-        like_sql = "SELECT * FROM poetry WHERE (title LIKE ? OR author LIKE ? OR content LIKE ?)"
+    # Fallback 逻辑仅在 query 存在且 FTS 没结果时触发
+    if query and not rows:
+        like_clauses = ["(title LIKE ? OR author LIKE ? OR content LIKE ?)"]
         like_params = [f"%{query}%", f"%{query}%", f"%{query}%"]
+        
+        # 重新应用过滤条件
         if dynasty:
-            like_sql += " AND dynasty = ?"
+            like_clauses.append("dynasty = ?")
             like_params.append(dynasty)
-        like_sql += " ORDER BY weight DESC LIMIT ?"
+        if poetry_type:
+            like_clauses.append("type = ?")
+            like_params.append(poetry_type)
+        if weight_range:
+            start, end = parse_range(weight_range)
+            if start is not None: like_clauses.append("weight >= ?"); like_params.append(start)
+            if end is not None: like_clauses.append("weight <= ?"); like_params.append(end)
+        if len_range:
+            start, end = parse_range(len_range)
+            if start is not None: like_clauses.append("LENGTH(content) >= ?"); like_params.append(start)
+            if end is not None: like_clauses.append("LENGTH(content) <= ?"); like_params.append(end)
+
+        like_sql = "SELECT * FROM poetry WHERE " + " AND ".join(like_clauses) + " ORDER BY weight DESC LIMIT ?"
         like_params.append(limit)
         cursor.execute(like_sql, like_params)
         rows = cursor.fetchall()
@@ -143,23 +225,25 @@ def handle_search(cursor, query, output_format, dynasty=None, limit=10, show_str
 
 @cli.command()
 @click.argument('query', required=False)
-@click.option('--format', 'output_format', type=click.Choice(['plain', 'json', 'ndjson']), default='plain')
-@click.option('--dynasty', help='按朝代过滤')
-@click.option('--limit', default=10, help='结果数量限制')
+@click.option('--output', '-o', 'output_format', type=click.Choice(['plain', 'json', 'ndjson', 'show']), help='输出格式')
+@click.option('--dynasty', help='按朝代过滤 (enum: 唐, 宋, 等)')
+@click.option('--type', 'poetry_type', help='按诗歌类型/来源过滤 (enum: 全唐诗, 全宋词, 等)')
+@click.option('--weight', help='按权重区间过滤 (range: 100-, -500, 10-20)')
+@click.option('--len', 'len_range', help='按字数区间过滤 (range: 20-50)')
+@click.option('--limit', type=int, help='结果数量限制')
 @click.option('--strains', is_flag=True, help='显示平仄')
 @click.option('--stream', is_flag=True, help='流处理模式：从标准输入读取查询')
-def search(query, output_format, dynasty, limit, strains, stream):
-    """搜索诗词"""
+def search(query, output_format, dynasty, poetry_type, weight, len_range, limit, strains, stream):
+    """搜索诗词 (支持多维区间过滤)"""
+    cfg = ConfigManager.load()
+    output_format = output_format or cfg['output']
+    limit = limit or cfg['limit']
+    dynasty = dynasty or cfg['dynasty']
+
     conn = get_db()
     cursor = conn.cursor()
-    if stream:
-        for line in sys.stdin:
-            q = line.strip()
-            if q: handle_search(cursor, q, output_format, dynasty, limit, strains)
-    elif query:
-        handle_search(cursor, query, output_format, dynasty, limit, strains)
-    else:
-        click.echo("用法: cp search [QUERY]")
+    for q in get_input_stream(query, stream):
+        handle_search(cursor, q, output_format, dynasty, limit, strains, weight, len_range, poetry_type)
     conn.close()
 
 @cli.command()
@@ -179,16 +263,41 @@ def author(name):
 
 @cli.command()
 @click.option('--count', default=1, help='随机获取的数量')
-def pick(count):
+@click.option('--output', '-o', 'output_format', type=click.Choice(['plain', 'json', 'show']), default='plain', help='输出格式')
+def pick(count, output_format):
     """随机灵感捡拾"""
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM poetry ORDER BY RANDOM() LIMIT ?", (count,))
     rows = cursor.fetchall()
     if rows:
-        for row in rows:
-            print_poem_plain(row)
+        output_result(rows, output_format)
     conn.close()
+
+@cli.command()
+@click.argument('action', type=click.Choice(['set', 'get', 'list']))
+@click.argument('key', required=False)
+@click.argument('value', required=False)
+def config(action, key, value):
+    """配置管理"""
+    cfg = ConfigManager.load()
+    if action == 'list':
+        for k, v in cfg.items():
+            click.echo(f"{k} = {v}")
+    elif action == 'get':
+        if key in cfg:
+            click.echo(cfg[key])
+        else:
+            click.secho(f"❌ 未知配置项: {key}", fg='red')
+    elif action == 'set':
+        if key in ConfigManager.DEFAULT_CONFIG:
+            # 简单类型转换
+            if key == 'limit': value = int(value)
+            cfg[key] = value
+            ConfigManager.save(cfg)
+            click.echo(f"✅ 已设置 {key} = {value}")
+        else:
+            click.secho(f"❌ 不支持的配置项: {key}", fg='red')
 
 @cli.command()
 @click.argument('statement')

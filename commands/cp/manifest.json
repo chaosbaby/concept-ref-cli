@@ -41,6 +41,14 @@
     {
       "id": "unified-output-protocol",
       "status": "implemented"
+    },
+    {
+      "id": "config-manager",
+      "status": "implemented"
+    },
+    {
+      "id": "param-filtering",
+      "status": "implemented"
     }
   ]
 }
