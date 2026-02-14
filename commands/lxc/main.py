@@ -316,6 +316,23 @@ def schema():
             for col in [c.strip() for c in cols_match.group(1).split(',')]: click.echo(f"  - {col}")
     click.echo(""); store.close()
 
+import unicodedata
+
+def get_display_width(s):
+    """Calculate the actual display width of a string (considering CJK characters)."""
+    width = 0
+    for char in s:
+        if unicodedata.east_asian_width(char) in ('W', 'F'):
+            width += 2
+        else:
+            width += 1
+    return width
+
+def pad_cjk(s, width):
+    """Pad string considering CJK width."""
+    d_width = get_display_width(s)
+    return s + " " * max(0, width - d_width)
+
 @cli.command()
 @click.option('--status', type=click.Choice(['ok', 'miss', 'opt']), help='Filter by status')
 def features(status):
@@ -326,29 +343,37 @@ def features(status):
     if not global_manifest_path.exists(): click.secho("❌ Global Manifest missing.", fg='red'); return
     with open(global_manifest_path, 'r') as f: manifest = json.load(f)
     
-    supported = get_supported_features()
-    
     click.secho("\n🚀 Lexicon Integrated Feature Matrix\n", fg='cyan', bold=True)
+    # Header alignment (Status: 10, Feature: 20)
     click.echo(f" {'STATUS':<10} | {'FEATURE':<20} | {'DESCRIPTION'}")
-    click.echo("-" * 80)
+    click.echo("-" * 90)
+    
     for feat in manifest:
         f_id = feat['id']
-        # Find local override if any
         local_feat = next((f for f in local_manifest.get('features', []) if f['id'] == f_id), None)
         f_status = local_feat['status'] if local_feat else ('miss' if feat.get('status') == 'mandatory' else 'opt')
         
         if status and f_status != status: continue
         
+        # Define Status Label and Color
         if f_status == 'implemented':
-            st = click.style("✅ OK", fg='green')
+            st_text, st_color, dim = "✅ OK", "green", False
         elif f_status == 'na':
-            st = click.style("🚫 N/A", fg='red', dim=True)
+            st_text, st_color, dim = "🚫 N/A", "red", True
         elif f_status == 'miss':
-            st = click.style("❌ MISSING", fg='red')
+            st_text, st_color, dim = "❌ MISSING", "red", False
         else:
-            st = click.style("⚪ OPT", fg='yellow')
+            st_text, st_color, dim = "⚪ OPT", "yellow", False
             
-        click.echo(f" {st:<19} | {feat['label']:<20} | {feat['description']}")
+        # Status column padding (Emoji=2, Space=1, Chars=2/7, Total display width 5 or 10)
+        # We manually pad the styled string to match the header's 10 columns
+        st_styled = click.style(st_text, fg=st_color, dim=dim)
+        st_padding = " " * (10 - get_display_width(st_text))
+        
+        # Feature label padding
+        feat_label = pad_cjk(feat['label'], 20)
+        
+        click.echo(f" {st_styled}{st_padding} | {feat_label} | {feat['description']}")
     click.echo("")
 
 @cli.command()
