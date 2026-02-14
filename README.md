@@ -1,49 +1,54 @@
-# Concept Ref CLI
+# Concept Ref CLI (Master Edition)
 
-本项目是一个高性能的中华文化数据查询工具集，目前包含诗词 (`cpt`) 和新华字典 (`xh`) 两个核心工具。
+本项目是一个高性能的中文文化数据工具集，基于 SQLite FTS5 全文检索与 Rich 终端渲染引擎构建。
 
 ## 核心工具
 
-### 1. `cpt` (中华诗歌 CLI)
-支持全唐诗、全宋诗、宋词、元曲等海量数据的检索。
+### 1. `xh` (新华字典大师版)
+集成字典、词典、成语、歇后语查询。
 
-*   **数据初始化**: `cpt init` (智能去重，支持内容指纹校验)
-*   **搜索**: `cpt search "李白"`
-*   **朝代过滤**: `cpt search "月" --dynasty 唐`
-*   **随机荐诗**: `cpt random-one`
-*   **作者查询**: `cpt author "杜甫"`
+*   **高性能搜索**: 升级 FTS5 引擎，支持字级 Tokenization 的极速子串匹配。
+*   **精美渲染**: 集成 `rich` 渲染引擎，提供自动适配终端颜色的精美面板排版。
+*   **统一协议**: 所有命令支持 `-o/--output (show, json, plain)` 及 `--stream` 流处理。
+*   **灵感捡拾**: `xh pick` 随机抽取高质量词条。
+*   **运维指令**: `xh schema` 自省表结构，`xh doctor` 诊断数据库健康度。
 
-### 2. `xh` (新华字典 CLI)
-提供字典、词典、成语、歇后语的高效查询。
+### 2. `lexicon` (现代汉语词库 - 模块化重构版)
+提供词频、字形构件（IDS）及同义词林等专业数据。
 
-*   **初始化**: `xh init`
-*   **查找汉字**: `xh word "禅"`
-*   **查找成语**: `xh idiom "心猿意马"`
-*   **查找词语**: `xh ci "代码"`
-*   **全局搜索**: `xh search "文化"`
+*   **原子化模块**: 子命令隔离 (`lexicon dict`, `lexicon ids`)。
+*   **多维过滤**: 支持按词频 (`--rank`)、词长 (`--len`) 进行区间过滤。
+*   **智能补全**: 内置毫秒级补全引擎，支持 Shell 自动补全。
+*   **持久化配置**: 支持 `config set/get` 锁定默认输出格式与限制。
 
-### 3. `lexicon` (词库引擎)
-标准化的 Unix 风格词库工具，提供词频、语义码及字形构件。
+### 3. `cpt` (中华诗歌 - 高性能修正版)
+支持全唐诗、宋词等海量数据的检索与渲染。
 
-*   **初始化**: `lexicon init`
-*   **搜词**: `lexicon search "逻辑"` (包含词频与同义词林语义码)
-*   **拆字**: `lexicon atoms "德"` (输出构件如 `⿰彳𢛳`)
-*   **溯源**: `lexicon find "彳"` (查找包含特定构件的所有高频字)
-*   **流处理**: `lexicon stream --limit 100` (输出 NDJSON 供管道调用)
+*   **统一输出**: 支持 `json` 和 `ndjson` 格式，便于下游工具链集成。
+*   **智能排版**: 支持格律诗的垂直/水平排版切换。
 
+## 通用特性 (Standard Protocols)
+
+- **输出模式 (-o)**: 
+  - `show`: Rich 面板精装版（默认）。
+  - `json`: 结构化 JSON 单行模式。
+  - `plain`: 适合 grep/sed 的纯文本模式。
+- **流处理**: 全面支持 `sys.stdin` 管道输入（`-` 或 `--stream`）。
+- **配置中心**: 使用 `config` 命令管理个性化默认值。
 
 ## 开发与扩展
 
 ### Concept CLI Factory
-本项目内置了一个 `factory` 目录，已注册为 Gemini CLI 的 Agent Skill。它可以引导开发者快速将原始文化 JSON/CSV 数据转化为工业级的 CLI 工具。
+本项目内置了一个 `factory` 目录，通过 `concept-cli-factory` 技能引导开发者将文化数据转化为工业级 CLI。
 
-*   **激活 Skill**: `activate_skill concept-cli-factory`
-*   **核心特性**: 高性能导入模板、内容指纹去重 SOP、FTS5 全文检索。
+*   **架构标准**: 强制执行特性驱动（Feature-Driven）的清单式管理。
+*   **原子开发**: 基于 Conductor Tracks 的渐进式开发流程。
 
 ## 安装与运行
 
 ```bash
 pip install -e .
+xh init  # 初始化字典库
 ```
 
 ## 数据来源
