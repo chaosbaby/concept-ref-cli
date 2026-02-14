@@ -43,6 +43,10 @@
       "status": "implemented"
     },
     {
+      "id": "multi-layer-dedup",
+      "status": "na"
+    },
+    {
       "id": "direct-sql",
       "status": "implemented"
     },

@@ -339,7 +339,15 @@ def features(status):
         
         if status and f_status != status: continue
         
-        st = click.style("✅ OK", fg='green') if f_status == 'implemented' else (click.style("❌ MISSING", fg='red') if f_status == 'miss' else click.style("⚪ OPT", fg='yellow'))
+        if f_status == 'implemented':
+            st = click.style("✅ OK", fg='green')
+        elif f_status == 'na':
+            st = click.style("🚫 N/A", fg='red', dim=True)
+        elif f_status == 'miss':
+            st = click.style("❌ MISSING", fg='red')
+        else:
+            st = click.style("⚪ OPT", fg='yellow')
+            
         click.echo(f" {st:<19} | {feat['label']:<20} | {feat['description']}")
     click.echo("")
 

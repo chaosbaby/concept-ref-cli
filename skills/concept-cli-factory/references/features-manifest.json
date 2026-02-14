@@ -49,7 +49,11 @@
     "status": "recommended",
     "trigger": {
       "type": "field_check",
-      "pattern": "^(content|text|desc|fulltext|poem)$"
+      "pattern": "^(content|text|desc|fulltext|poem)$",
+      "exclude": {
+        "condition": "source_type_mismatch",
+        "value": "pure_numeric"
+      }
     },
     "cli_integration": {
       "command": "search",

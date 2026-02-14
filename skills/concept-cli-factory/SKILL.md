@@ -49,6 +49,7 @@ description: 交互式中文文化数据 CLI 工厂。通过“感知-诊断-构
 
 1. **特性驱动 (Feature-Driven)**: 
    - `features` 命令必须实时反映 `features-manifest.json` 中的状态。
+   - 状态词：`implemented` (✅ OK), `recommended`/`optional` (⚪ OPT), `na` (🚫 N/A - 抵触/不兼容)。
    - `implemented` 状态应与代码逻辑严格对齐。
 2. **多维过滤 (Filter Matrix)**:
    - 必须支持区间过滤（`min-max`）、集合过滤（`in/not in`）。
