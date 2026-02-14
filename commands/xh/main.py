@@ -4,16 +4,39 @@ import sqlite3
 import os
 import sys
 import zhconv
+from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-console = Console()
-
 # 数据库路径：指向项目根目录下的 data 目录
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DB_PATH = os.path.join(BASE_DIR, "data", "xh_xinhua.db")
+CONFIG_PATH = os.path.expanduser("~/.xh.json")
+
+console = Console()
+
+class ConfigManager:
+    DEFAULT_CONFIG = {
+        "output": "show",
+        "limit": 10
+    }
+    
+    @staticmethod
+    def load():
+        if os.path.exists(CONFIG_PATH):
+            with open(CONFIG_PATH, 'r') as f:
+                cfg = json.load(f)
+                for k, v in ConfigManager.DEFAULT_CONFIG.items():
+                    if k not in cfg: cfg[k] = v
+                return cfg
+        return ConfigManager.DEFAULT_CONFIG.copy()
+
+    @staticmethod
+    def save(config):
+        with open(CONFIG_PATH, 'w') as f:
+            json.dump(config, f, indent=2)
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -71,7 +94,7 @@ def completion(shell):
     click.echo(f"# 请将以下命令添加到你的 shell 配置文件中 (如 ~/.bashrc 或 ~/.zshrc):")
     click.echo(cmd)
 
-def handle_search(cursor, query, is_json, strict):
+def handle_search(cursor, query, output_mode, strict):
     results = {'idioms': [], 'cis': [], 'words': []}
     query = zhconv.convert(query, 'zh-hans')
     
@@ -95,47 +118,40 @@ def handle_search(cursor, query, is_json, strict):
             sid = row['source_id']
             if t == 'idiom':
                 cursor.execute("SELECT * FROM idiom WHERE word = ?", (sid,))
-                results['idioms'].append(dict(cursor.fetchone()))
+                res = cursor.fetchone()
+                if res: results['idioms'].append(dict(res))
             elif t == 'ci':
                 cursor.execute("SELECT * FROM ci WHERE ci = ?", (sid,))
-                results['cis'].append(dict(cursor.fetchone()))
+                res = cursor.fetchone()
+                if res: results['cis'].append(dict(res))
             elif t == 'word':
                 cursor.execute("SELECT * FROM word WHERE word = ?", (sid,))
-                results['words'].append(dict(cursor.fetchone()))
+                res = cursor.fetchone()
+                if res: results['words'].append(dict(res))
 
-    if is_json:
+    if output_mode == 'json':
         click.echo(json.dumps(results, ensure_ascii=False))
     else:
-        for k, v in [('成语', results['idioms']), ('词语', results['cis']), ('汉字', results['words'])]:
-            if v:
-                click.secho(f"\n> {k}:", fg='green' if k=='成语' else 'cyan')
-                for r in v:
-                    name = r.get('word') or r.get('ci')
-                    click.echo(f"  {name}")
+        for k, v in [('idiom', results['idioms']), ('ci', results['cis']), ('word', results['words'])]:
+            for item in v:
+                render_entry(k, item, output_mode)
 
 @cli.command()
 @click.argument('query', required=False)
-@click.option('--json', 'is_json', is_flag=True, help='Output in JSON format')
+@click.option('--output', '-o', type=click.Choice(['show', 'json', 'plain']), help='Output mode')
 @click.option('--strict', is_flag=True, help='Strict mode (exact match)')
 @click.option('--stream', is_flag=True, help='Read queries from stdin')
-def search(query, is_json, strict, stream):
+def search(query, output, strict, stream):
     """全局搜索 (跨表查找)"""
+    cfg = ConfigManager.load()
+    output = output or cfg['output']
+    if is_headless() and output == 'show': output = 'plain'
+
     conn = get_db()
     cursor = conn.cursor()
     
-    if stream:
-        for line in sys.stdin:
-            q = line.strip()
-            if q:
-                if not is_json:
-                    click.secho(f"正在全局搜索: {q}...", dim=True)
-                handle_search(cursor, q, is_json, strict)
-    elif query:
-        if not is_json:
-            click.secho(f"正在全局搜索: {query}...", dim=True)
-        handle_search(cursor, query, is_json, strict)
-    else:
-        click.echo("错误: 请提供查询词或使用 --stream 选项。")
+    for q in get_input_stream(query, stream):
+        handle_search(cursor, q, output, strict)
 
     conn.close()
 
@@ -337,8 +353,26 @@ def pick(entry_type):
         click.echo("数据库为空。")
     conn.close()
 
-def render_entry(entry_type, data):
-    """使用 rich 渲染词条"""
+def is_headless():
+    return not sys.stdout.isatty() or os.environ.get('HEADLESS') == '1'
+
+def get_input_stream(query, stream_flag):
+    if query == '-' or stream_flag:
+        for line in sys.stdin:
+            yield line.strip()
+    elif query:
+        yield query
+
+def render_entry(entry_type, data, output_mode='show'):
+    """使用 rich 渲染词条，支持多种输出模式"""
+    if output_mode == 'json':
+        click.echo(json.dumps(data, ensure_ascii=False))
+        return
+    elif output_mode == 'plain':
+        # 简单平铺输出
+        click.echo(" | ".join([str(v) for k, v in data.items() if v]))
+        return
+
     if entry_type == 'idiom':
         title = f"[bold green]{data['word']}[/bold green] [dim]({data['pinyin']})[/dim]"
         content = [f"[bold]释义:[/bold] {data['explanation']}"]
@@ -362,180 +396,100 @@ def render_entry(entry_type, data):
         title = f"[bold cyan]{data['ci']}[/bold cyan]"
         console.print(Panel(data['explanation'], title=title, border_style="cyan", expand=False))
 
-def handle_idiom(cursor, query, is_json, strict):
+def handle_sub(cursor, table, query, output_mode, strict):
+    col = 'word' if table in ['idiom', 'word'] else ('ci' if table == 'ci' else 'riddle')
     pattern = query if strict else f"{query}%"
     op = "=" if strict else "LIKE"
     
-    sql = f"""
-        SELECT * FROM idiom 
-        WHERE abbreviation = ? 
-           OR word {op} ? 
-           OR pinyin = ?
-        LIMIT 10
-    """
-    cursor.execute(sql, (query.lower(), pattern, query))
-    results = cursor.fetchall()
+    if table == 'idiom': # 成语额外支持拼音和缩写
+        sql = f"SELECT * FROM idiom WHERE abbreviation = ? OR word {op} ? OR pinyin = ? LIMIT 10"
+        cursor.execute(sql, (query.lower(), pattern, query))
+    else:
+        sql = f"SELECT * FROM {table} WHERE {col} {op} ? LIMIT 10"
+        cursor.execute(sql, (pattern,))
     
+    results = cursor.fetchall()
     if not results:
-        if is_json:
-            click.echo("{}")
-        else:
-            click.secho(f"未找到关于 '{query}' 的成语。", fg='yellow')
+        if output_mode != 'json': click.secho(f"未找到相关结果。", fg='yellow')
         return
 
-    if is_json:
-        if strict:
-            click.echo(json.dumps(dict(results[0]), ensure_ascii=False))
-        else:
-            click.echo(json.dumps([dict(r) for r in results], ensure_ascii=False))
-    else:
-        for row in results:
-            render_entry('idiom', dict(row))
+    for row in results:
+        render_entry(table, dict(row), output_mode)
 
 @cli.command()
 @click.argument('query', required=False)
-@click.option('--json', 'is_json', is_flag=True, help='Output in JSON format')
+@click.option('--output', '-o', type=click.Choice(['show', 'json', 'plain']), help='Output mode')
 @click.option('--strict', is_flag=True, help='Strict mode (exact match)')
 @click.option('--stream', is_flag=True, help='Read queries from stdin')
-def idiom(query, is_json, strict, stream):
+def idiom(query, output, strict, stream):
     """查找成语 (支持汉字、拼音、缩写)"""
-    conn = get_db()
-    cursor = conn.cursor()
-    
-    if stream:
-        for line in sys.stdin:
-            q = line.strip()
-            if q: handle_idiom(cursor, q, is_json, strict)
-    elif query:
-        handle_idiom(cursor, query, is_json, strict)
-    else:
-        click.echo("错误: 请提供查询词或使用 --stream 选项。")
+    cfg = ConfigManager.load()
+    output = output or cfg['output']
+    conn = get_db(); cursor = conn.cursor()
+    for q in get_input_stream(query, stream): handle_sub(cursor, 'idiom', q, output, strict)
     conn.close()
-
-def handle_word(cursor, query, is_json):
-    cursor.execute("SELECT * FROM word WHERE word = ?", (query,))
-    row = cursor.fetchone()
-    
-    if not row:
-        if is_json:
-            click.echo("{}")
-        else:
-            click.secho(f"未找到汉字 '{query}'。", fg='yellow')
-        return
-
-    if is_json:
-        click.echo(json.dumps(dict(row), ensure_ascii=False))
-    else:
-        render_entry('word', dict(row))
 
 @cli.command()
 @click.argument('query', required=False)
-@click.option('--json', 'is_json', is_flag=True, help='Output in JSON format')
+@click.option('--output', '-o', type=click.Choice(['show', 'json', 'plain']), help='Output mode')
 @click.option('--stream', is_flag=True, help='Read queries from stdin')
-def word(query, is_json, stream):
+def word(query, output, stream):
     """查找汉字"""
-    conn = get_db()
-    cursor = conn.cursor()
-    if stream:
-        for line in sys.stdin:
-            q = line.strip()
-            if q: handle_word(cursor, q, is_json)
-    elif query:
-        handle_word(cursor, query, is_json)
-    else:
-        click.echo("错误: 请提供查询词或使用 --stream 选项。")
+    cfg = ConfigManager.load()
+    output = output or cfg['output']
+    conn = get_db(); cursor = conn.cursor()
+    for q in get_input_stream(query, stream): handle_sub(cursor, 'word', q, output, True)
     conn.close()
-
-def handle_ci(cursor, query, is_json, strict):
-    pattern = query if strict else f"{query}%"
-    op = "=" if strict else "LIKE"
-    
-    cursor.execute(f"SELECT * FROM ci WHERE ci {op} ?", (pattern,))
-    results = cursor.fetchall()
-    
-    if not results:
-        if is_json:
-            click.echo("{}")
-        else:
-            click.secho(f"未找到词语 '{query}'。", fg='yellow')
-        return
-
-    if is_json:
-        if strict:
-            click.echo(json.dumps(dict(results[0]), ensure_ascii=False))
-        else:
-            click.echo(json.dumps([dict(r) for r in results], ensure_ascii=False))
-    else:
-        for row in results[:5]:  # 词语较多，限制显示前5个
-            render_entry('ci', dict(row))
-        
-        if len(results) > 5:
-            click.echo(f"... 共找到 {len(results)} 个结果")
 
 @cli.command()
 @click.argument('query', required=False)
-@click.option('--json', 'is_json', is_flag=True, help='Output in JSON format')
+@click.option('--output', '-o', type=click.Choice(['show', 'json', 'plain']), help='Output mode')
 @click.option('--strict', is_flag=True, help='Strict mode (exact match)')
 @click.option('--stream', is_flag=True, help='Read queries from stdin')
-def ci(query, is_json, strict, stream):
+def ci(query, output, strict, stream):
     """查找词语"""
-    conn = get_db()
-    cursor = conn.cursor()
-    if stream:
-        for line in sys.stdin:
-            q = line.strip()
-            if q: handle_ci(cursor, q, is_json, strict)
-    elif query:
-        handle_ci(cursor, query, is_json, strict)
-    else:
-        click.echo("错误: 请提供查询词或使用 --stream 选项。")
+    cfg = ConfigManager.load()
+    output = output or cfg['output']
+    conn = get_db(); cursor = conn.cursor()
+    for q in get_input_stream(query, stream): handle_sub(cursor, 'ci', q, output, strict)
     conn.close()
-
-def handle_xie(cursor, query, is_json, strict):
-    pattern = query if strict else f"%{query}%"
-    op = "=" if strict else "LIKE"
-    
-    cursor.execute(f"SELECT * FROM xiehouyu WHERE riddle {op} ?", (pattern,))
-    results = cursor.fetchall()
-    
-    if not results:
-        if is_json:
-            click.echo("{}")
-        else:
-            click.secho(f"未找到包含 '{query}' 的歇后语。", fg='yellow')
-        return
-
-    if is_json:
-        if strict:
-            click.echo(json.dumps(dict(results[0]), ensure_ascii=False))
-        else:
-            click.echo(json.dumps([dict(r) for r in results], ensure_ascii=False))
-    else:
-        for row in results[:10]:
-            click.secho(f"{row['riddle']} —— ", nl=False)
-            click.secho(f"{row['answer']}", fg='green', bold=True)
-        
-        if len(results) > 10:
-            click.echo(f"... 共找到 {len(results)} 个结果")
 
 @cli.command()
 @click.argument('query', required=False)
-@click.option('--json', 'is_json', is_flag=True, help='Output in JSON format')
+@click.option('--output', '-o', type=click.Choice(['show', 'json', 'plain']), help='Output mode')
 @click.option('--strict', is_flag=True, help='Strict mode (exact match)')
 @click.option('--stream', is_flag=True, help='Read queries from stdin')
-def xie(query, is_json, strict, stream):
+def xie(query, output, strict, stream):
     """查找歇后语 (搜索谜面)"""
-    conn = get_db()
-    cursor = conn.cursor()
-    if stream:
-        for line in sys.stdin:
-            q = line.strip()
-            if q: handle_xie(cursor, q, is_json, strict)
-    elif query:
-        handle_xie(cursor, query, is_json, strict)
-    else:
-        click.echo("错误: 请提供查询词或使用 --stream 选项。")
+    cfg = ConfigManager.load()
+    output = output or cfg['output']
+    conn = get_db(); cursor = conn.cursor()
+    for q in get_input_stream(query, stream): handle_sub(cursor, 'xiehouyu', q, output, strict)
     conn.close()
+
+@cli.group()
+def config_cmd():
+    """管理持久化配置"""
+    pass
+
+@config_cmd.command(name='set')
+@click.argument('key', type=click.Choice(['output', 'limit']))
+@click.argument('value')
+def config_set(key, value):
+    cfg = ConfigManager.load()
+    if key == 'limit': value = int(value)
+    cfg[key] = value
+    ConfigManager.save(cfg)
+    click.secho(f"✅ 已设置 {key}={value}", fg='green')
+
+@config_cmd.command(name='get')
+@click.argument('key', required=False)
+def config_get(key):
+    cfg = ConfigManager.load()
+    if key: click.echo(cfg.get(key, "未设置"))
+    else: click.echo(json.dumps(cfg, indent=2, ensure_ascii=False))
+
+cli.add_command(config_cmd, name='config')
 
 if __name__ == '__main__':
     cli()
