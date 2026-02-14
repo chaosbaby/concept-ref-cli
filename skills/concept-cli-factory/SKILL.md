@@ -61,11 +61,14 @@ description: 交互式中文文化数据 CLI 工厂。通过“感知-诊断-构
 3. **配置持久化 (Configuration)**:
    - 提供 `config` 指令，支持持久化默认输出格式、搜索限制等。
 4. **技术指标**:
-   - **DB**: `~/.<tool_id>.db`。
-   - **Format**: 支持 `--json` (单行) 和 `--plain` (彩色)。
-   - **Stream**: `sys.stdin` 必须能处理 `search` 查询流。
-
-## 4. 目录真理源 (Directory Mapping)
+     - **DB**: `~/.<tool_id>.db`。
+     - **Format**: 必须支持四大输出模式：
+       1. `show`: 高亮排版精装版。
+       2. `plain`: 无颜色纯文本原味版。
+       3. `json`: 标准 JSON 数组格式 `[...]`。
+       4. `ndjson`: 换行符分隔的 JSON 对象流格式，每行一个对象。
+     - **Stream**: `sys.stdin` 必须能处理 `search` 查询流。
+   ## 4. 目录真理源 (Directory Mapping)
 - **Source of Truth**: `skills/concept-cli-factory/`
 - **Mapping**: `.gemini/skills/concept-cli-factory` 为软连接。
 - **Metadata**: 特性状态记录在 `references/features-manifest.json`。

@@ -13,8 +13,7 @@
     },
     {
       "id": "unified-output-protocol",
-      "status": "implemented",
-      "notes": "Partially implemented via --json flag."
+      "status": "implemented"
     },
     {
       "id": "shell-completion-manager",
@@ -31,6 +30,19 @@
     {
       "id": "doctor-stat",
       "status": "implemented"
+    },
+    {
+      "id": "config-manager",
+      "status": "implemented"
+    },
+    {
+      "id": "param-filtering",
+      "status": "recommended",
+      "notes": "Suggest adding --strokes and --len filters for xinhua data."
+    },
+    {
+      "id": "auto-completion-engine",
+      "status": "recommended"
     },
     {
       "id": "rich-render-engine",

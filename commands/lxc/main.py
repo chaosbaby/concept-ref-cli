@@ -111,11 +111,11 @@ def format_output(row, mode, source_id=None, fields=None):
         data = {k: v for k, v in data.items() if k in fields}
     if source_id: data['_source'] = source_id
     
-    if mode in ['json', 'stream']:
+    if mode == 'ndjson':
         click.echo(json.dumps(data, ensure_ascii=False))
     elif mode == 'plain':
         click.echo(" ".join([str(v) for k, v in data.items() if not k.startswith('_')]))
-    else: # mode == 'show' (Default)
+    elif mode == 'show':
         color = 'cyan' if source_id == 'ids' else 'green'
         label = click.style(f"[{source_id}]", fg='white', dim=True) if source_id else ""
         pk = data.get('term') or data.get('char') or list(data.values())[0]
@@ -154,7 +154,7 @@ def cli():
 @cli.command()
 @click.argument('query', required=False)
 @click.option('--stdin', is_flag=True, help='Read from stdin')
-@click.option('--output', '-o', type=click.Choice(['show', 'json', 'stream', 'plain']), help='Output mode')
+@click.option('--output', '-o', type=click.Choice(['show', 'json', 'ndjson', 'plain']), help='Output mode')
 @click.option('--field', '-f', multiple=True, help='Filter specific fields')
 @click.option('--join', '-j', help='Join related info (e.g. ids)')
 @click.option('--rank', help='Rank/Freq filter (e.g. 1000-, 1-500)')
@@ -176,10 +176,11 @@ def search(query, stdin, output, field, join, rank, length, tags, no_tags, limit
     if not no_tags and cfg.get('default_no_tag'):
         no_tags = [t.strip() for t in cfg.get('default_no_tag').split(',') if t.strip()]
     
-    if is_headless() and output == 'show': output = 'stream'
+    if is_headless() and output == 'show': output = 'ndjson'
     store = LexiconStore()
     cursor = store.conn.cursor()
     
+    all_results = []
     for q in get_input_stream(query, stdin):
         if not q: continue
         for s_id in ['dict', 'ids']:
@@ -224,8 +225,15 @@ def search(query, stdin, output, field, join, rank, length, tags, no_tags, limit
                                 j_dict = dict(j_res); j_dict['_source'] = 'ids'
                                 joined_data.append(j_dict)
                         if joined_data: row['_joined'] = joined_data
-                for row in rows: format_output(row, output, source_id=s_id, fields=field)
+                for row in rows:
+                    if output == 'json':
+                        all_results.append(row)
+                    else:
+                        format_output(row, output, source_id=s_id, fields=field)
             except sqlite3.OperationalError: continue
+    
+    if output == 'json':
+        click.echo(json.dumps(all_results, ensure_ascii=False))
     store.close()
 
 @cli.group()
@@ -240,7 +248,7 @@ def config_set(key, value):
     """Set a configuration value."""
     cfg = ConfigManager.load()
     if key == 'limit': value = int(value)
-    if key == 'output' and value not in ['show', 'json', 'stream', 'plain']:
+    if key == 'output' and value not in ['show', 'json', 'ndjson', 'plain']:
         click.secho(f"⚠ Invalid output mode: {value}", fg='yellow')
     cfg[key] = value
     ConfigManager.save(cfg)

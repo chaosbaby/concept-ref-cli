@@ -31,14 +31,14 @@
     "id": "unified-output-protocol",
     "category": "Interop",
     "label": "标准输出协议",
-    "description": "支持 show(精装), plain(原味), json(结构化) 三大模式。",
+    "description": "支持 show(精装), plain(原味), json(数组), ndjson(流式) 四大模式。",
     "status": "mandatory",
     "trigger": {
       "type": "always"
     },
     "cli_integration": {
       "command": "search",
-      "flags": ["-o show", "-o plain", "-o json"]
+      "flags": ["-o show", "-o plain", "-o json", "-o ndjson"]
     }
   },
   {

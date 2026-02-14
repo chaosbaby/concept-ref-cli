@@ -131,6 +131,10 @@ def handle_search(cursor, query, output_mode, strict):
 
     if output_mode == 'json':
         click.echo(json.dumps(results, ensure_ascii=False))
+    elif output_mode == 'ndjson':
+        for category in ['idioms', 'cis', 'words']:
+            for item in results[category]:
+                click.echo(json.dumps(item, ensure_ascii=False))
     else:
         for k, v in [('idiom', results['idioms']), ('ci', results['cis']), ('word', results['words'])]:
             for item in v:
@@ -138,7 +142,7 @@ def handle_search(cursor, query, output_mode, strict):
 
 @cli.command()
 @click.argument('query', required=False)
-@click.option('--output', '-o', type=click.Choice(['show', 'json', 'plain']), help='Output mode')
+@click.option('--output', '-o', type=click.Choice(['show', 'json', 'ndjson', 'plain']), help='Output mode')
 @click.option('--strict', is_flag=True, help='Strict mode (exact match)')
 @click.option('--stream', is_flag=True, help='Read queries from stdin')
 def search(query, output, strict, stream):
