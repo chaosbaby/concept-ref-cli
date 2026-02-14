@@ -1,0 +1,66 @@
+{
+  "command": "lxc",
+  "data_context": "sources/lexicon",
+  "features": [
+    {
+      "id": "fts-engine",
+      "status": "implemented"
+    },
+    {
+      "id": "pipe-stream",
+      "status": "implemented"
+    },
+    {
+      "id": "unified-output-protocol",
+      "status": "implemented"
+    },
+    {
+      "id": "sub-command-isolation",
+      "status": "implemented"
+    },
+    {
+      "id": "param-filtering",
+      "status": "implemented"
+    },
+    {
+      "id": "cross-ref-join",
+      "status": "implemented"
+    },
+    {
+      "id": "shell-completion-manager",
+      "status": "implemented"
+    },
+    {
+      "id": "auto-completion-engine",
+      "status": "implemented"
+    },
+    {
+      "id": "config-manager",
+      "status": "implemented"
+    },
+    {
+      "id": "interactive-pick",
+      "status": "implemented"
+    },
+    {
+      "id": "direct-sql",
+      "status": "implemented"
+    },
+    {
+      "id": "doctor-stat",
+      "status": "implemented"
+    },
+    {
+      "id": "schema-reflection",
+      "status": "implemented"
+    },
+    {
+      "id": "rank-sorting",
+      "status": "implemented"
+    },
+    {
+      "id": "rich-render-engine",
+      "status": "recommended"
+    }
+  ]
+}
