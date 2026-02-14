@@ -54,6 +54,7 @@ description: 交互式中文文化数据 CLI 工厂。通过“感知-诊断-构
    - `features` 命令必须实时反映 `features-manifest.json` 中的状态。
    - 状态词：`implemented` (✅ OK), `recommended`/`optional` (⚪ OPT), `na` (🚫 N/A - 抵触/不兼容)。
    - `implemented` 状态应与代码逻辑严格对齐。
+   - **高亮展示 (Search Highlighting)**: 在 `-o show` 模式下，输出内容必须对搜索关键词（Query）进行视觉高亮处理，并配合颜色排版。而在 `-o plain` 模式下，严禁包含任何 ANSI 颜色或排版装饰，仅输出纯文本。
 2. **多维过滤 (Filter Matrix)**:
    - 必须支持区间过滤（`min-max`）、集合过滤（`in/not in`）。
    - **强制补全 (Tag Completion)**: 对于基数（Unique Values）在 100 以下的 Tag 类字段（如朝代、类型、标签），必须实现动态 Shell 补全，以提升交互效率。

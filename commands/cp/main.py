@@ -87,52 +87,73 @@ def features(status):
         click.echo(f" {st:<19} | {feat['label']:<20} | {feat['description']}")
     click.echo("")
 
-def print_poem_plain(r, show_strains=False):
-    """人类易读的彩色排版"""
+def highlight_text(text, query):
+    """在文本中高亮关键词 (仅限 show 模式)"""
+    if not query: return text
+    import re
+    pattern = re.compile(f"({re.escape(query)})", re.IGNORECASE)
+    return pattern.sub(click.style(r"\1", fg='yellow', bold=True), text)
+
+def print_poem_show(r, query=None, show_strains=False):
+    """【精装版】带高亮、颜色与排版"""
     click.echo("")
-    click.secho(f"  {r['title']}", fg='green', bold=True)
+    title = highlight_text(r['title'], query)
+    click.secho(f"  {title}", fg='green', bold=True)
     click.secho(f"  [{r['dynasty']}] {r['author']}", fg='cyan')
     click.echo("")
     
     content_lines = r['content'].split('\n')
-    # 安全获取 strains
     strains_val = r['strains'] if 'strains' in r.keys() else ""
     strains_lines = strains_val.split('\n') if strains_val else []
     
     for i, line in enumerate(content_lines):
-        click.echo(f"    {line}", nl=not show_strains)
+        highlighted_line = highlight_text(line, query)
+        click.echo(f"    {highlighted_line}", nl=not show_strains)
         if show_strains and i < len(strains_lines):
             click.secho(f"  {strains_lines[i]}", fg='yellow', dim=True)
         elif show_strains:
             click.echo("")
             
     click.echo("")
-    # 安全获取 weight
     weight_val = r['weight'] if 'weight' in r.keys() else 0
     weight_str = f" | Weight: {weight_val}" if weight_val > 0 else ""
     click.secho(f"  (ID: {r['id']} | Source: {r['type']}{weight_str})", dim=True)
     click.echo("-" * 40)
 
-def output_result(rows, output_format, show_strains=False):
+def print_poem_plain(r):
+    """【原味版】纯文本，无任何 ANSI 装饰"""
+    click.echo(f"\n{r['title']}")
+    click.echo(f"[{r['dynasty']}] {r['author']}\n")
+    click.echo(r['content'])
+    weight_val = r['weight'] if 'weight' in r.keys() else 0
+    weight_str = f" | Weight: {weight_val}" if weight_val > 0 else ""
+    click.echo(f"\n(ID: {r['id']} | Source: {r['type']}{weight_str})")
+    click.echo("-" * 20)
+
+def output_result(rows, output_format, query=None, show_strains=False):
     """统一输出协议控制"""
     if output_format == 'json':
         click.echo(json.dumps([dict(r) for r in rows], ensure_ascii=False))
     elif output_format == 'ndjson':
         for r in rows:
             click.echo(json.dumps(dict(r), ensure_ascii=False))
-    else: # plain or show
+    elif output_format == 'plain':
+        if not rows: return
+        for r in rows: print_poem_plain(r)
+    else: # show 模式
         if not rows:
             click.secho("未找到结果。", fg='yellow')
             return
         if len(rows) == 1:
-            print_poem_plain(rows[0], show_strains)
+            print_poem_show(rows[0], query, show_strains)
         else:
             for r in rows:
+                title = highlight_text(r['title'], query)
                 summary = r['content'].replace('\n', ' ')[:30] + "..."
-                # 安全访问 weight
+                summary = highlight_text(summary, query)
                 weight_val = r['weight'] if 'weight' in r.keys() else 0
                 weight_tag = f" [{weight_val}]" if weight_val > 0 else ""
-                click.secho(f"【{r['title']}】", fg='green', nl=False)
+                click.secho(f"【{title}】", fg='green', nl=False)
                 click.echo(f" {r['author']} ({r['dynasty']}){weight_tag} - ", nl=False)
                 click.secho(summary, dim=True)
 
@@ -239,7 +260,7 @@ def handle_search(cursor, query, output_format, dynasty=None, limit=10, show_str
         cursor.execute(like_sql, like_params)
         rows = cursor.fetchall()
 
-    output_result(rows, output_format, show_strains)
+    output_result(rows, output_format, query, show_strains)
 
 @cli.command()
 @click.argument('query', required=False)
@@ -289,7 +310,7 @@ def pick(count, output_format):
     cursor.execute("SELECT * FROM poetry ORDER BY RANDOM() LIMIT ?", (count,))
     rows = cursor.fetchall()
     if rows:
-        output_result(rows, output_format)
+        output_result(rows, output_format, query=None)
     conn.close()
 
 @cli.command()
