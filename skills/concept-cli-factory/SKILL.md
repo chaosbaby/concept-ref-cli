@@ -1,6 +1,9 @@
 ---
 name: concept-cli-factory
 description: 交互式中文文化数据 CLI 工厂。通过“感知-诊断-构建-增强”四个阶段，引导用户将原始数据转化为工业级的流处理与查询工具。支持特性驱动的子命令架构与深度参数化过滤。
+aliases: []
+id: SKILL
+tags: []
 ---
 
 # Concept CLI Factory (Master Edition)
@@ -76,5 +79,4 @@ description: 交互式中文文化数据 CLI 工厂。通过“感知-诊断-构
    - **变更审计 (Audit)**: 完成后必须执行 diff 检查并简报差异。
    ## 4. 目录真理源 (Directory Mapping)
 - **Source of Truth**: `skills/concept-cli-factory/`
-- **Mapping**: `.gemini/skills/concept-cli-factory` 为软连接。
 - **Metadata**: 特性状态记录在 `references/features-manifest.json`。
