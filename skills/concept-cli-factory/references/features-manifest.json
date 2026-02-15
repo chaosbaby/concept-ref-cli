@@ -5,6 +5,7 @@
     "label": "内建补全引擎",
     "description": "毫秒级前缀匹配补全接口。",
     "status": "recommended",
+    "spec_map": "io-presentation",
     "trigger": {
       "type": "always"
     },
@@ -20,6 +21,7 @@
     "label": "工业级加载器",
     "description": "多线程加载大规模碎片 JSON/TSV。",
     "status": "recommended",
+    "spec_map": "data-ops",
     "trigger": {
       "type": "source_pattern",
       "pattern": ".*\\.json$",
@@ -41,6 +43,7 @@
     "label": "配置管理",
     "description": "持久化用户默认参数，支持默认过滤条件设置。",
     "status": "optional",
+    "spec_map": "system-config",
     "trigger": {
       "type": "always"
     },
@@ -59,6 +62,7 @@
     "label": "跨源关联引用",
     "description": "通过 --join 实时关联查询不同数据源（如词典关联构件）。",
     "status": "optional",
+    "spec_map": "query-engine",
     "trigger": {
       "type": "always",
       "exclude": {
@@ -79,6 +83,7 @@
     "label": "SQL 直连",
     "description": "直接执行 SQLite 语句。",
     "status": "optional",
+    "spec_map": "data-ops",
     "trigger": {
       "type": "always"
     },
@@ -94,6 +99,7 @@
     "label": "健康诊断",
     "description": "DB 完整性及统计分布检查。",
     "status": "mandatory",
+    "spec_map": "data-ops",
     "trigger": {
       "type": "always"
     },
@@ -109,6 +115,7 @@
     "label": "FTS5 全文索引",
     "description": "基于 SQLite FTS5 的高性能搜索。",
     "status": "mandatory",
+    "spec_map": "query-engine",
     "trigger": {
       "type": "always"
     },
@@ -128,6 +135,7 @@
     "label": "增量同步引擎",
     "description": "基于 Hash 校验的增量数据更新机制。",
     "status": "recommended",
+    "spec_map": "data-ops",
     "trigger": {
       "type": "always"
     },
@@ -142,6 +150,7 @@
     "label": "随机灵感捡拾",
     "description": "随机返回高质量词条。",
     "status": "optional",
+    "spec_map": "query-engine",
     "trigger": {
       "type": "volume_check",
       "min_records": 1000
@@ -160,6 +169,7 @@
     "label": "多层去重",
     "description": "在加载时基于指纹自动去重。",
     "status": "recommended",
+    "spec_map": "data-ops",
     "trigger": {
       "type": "conflict_risk",
       "condition": "duplicate_keys"
@@ -178,6 +188,7 @@
     "label": "多维参数过滤",
     "description": "支持按词长、频率、标签进行区间过滤（如 1-5, 100-）。",
     "status": "recommended",
+    "spec_map": "query-engine",
     "trigger": {
       "type": "field_check",
       "pattern": "^(rank|freq|tag|len)$",
@@ -203,6 +214,7 @@
     "label": "拼音模糊搜索",
     "description": "支持全拼/首字母跨语言检索。",
     "status": "recommended",
+    "spec_map": "query-engine",
     "trigger": {
       "type": "always"
     },
@@ -219,6 +231,7 @@
     "label": "Unix 管道流",
     "description": "支持从 stdin 读取查询及结果管道输出。",
     "status": "mandatory",
+    "spec_map": "io-presentation",
     "trigger": {
       "type": "always"
     },
@@ -237,6 +250,7 @@
     "label": "权重智能排序",
     "description": "根据热度字段自动优化结果顺序。",
     "status": "recommended",
+    "spec_map": "query-engine",
     "trigger": {
       "type": "field_check",
       "pattern": "^(rank|freq|hot)$",
@@ -258,6 +272,7 @@
     "label": "智能排版引擎",
     "description": "根据数据内容（如诗词、长文）自动触发垂直排版或分段。",
     "status": "recommended",
+    "spec_map": "io-presentation",
     "trigger": {
       "type": "field_check",
       "pattern": "^(content|text|desc|fulltext|poem)$",
@@ -280,6 +295,7 @@
     "label": "Schema 自省",
     "description": "输出底层数据库字段定义。",
     "status": "mandatory",
+    "spec_map": "data-ops",
     "trigger": {
       "type": "always"
     },
@@ -296,6 +312,7 @@
     "label": "服务桥接模式",
     "description": "一键将 CLI 搜索能力暴露为 Web API。",
     "status": "optional",
+    "spec_map": "system-config",
     "trigger": {
       "type": "always"
     },
@@ -312,6 +329,7 @@
     "label": "补全管理器",
     "description": "提供 show (源码展示) 和 install (自动注入) 功能。",
     "status": "mandatory",
+    "spec_map": "io-presentation",
     "trigger": {
       "type": "always"
     },
@@ -330,6 +348,7 @@
     "label": "子命令隔离",
     "description": "不同功能源拥有独立命令空间（如 lexicon dict）。",
     "status": "mandatory",
+    "spec_map": "system-config",
     "trigger": {
       "type": "always"
     },
@@ -348,6 +367,7 @@
     "label": "交互式浏览器",
     "description": "集成 TUI 列表，支持上下选择与详情翻阅。",
     "status": "optional",
+    "spec_map": "io-presentation",
     "trigger": {
       "type": "always"
     },
@@ -362,6 +382,7 @@
     "label": "标准输出协议",
     "description": "支持 show(精装), plain(原味), json(数组), ndjson(流式) 四大模式。",
     "status": "mandatory",
+    "spec_map": "io-presentation",
     "trigger": {
       "type": "always"
     },
