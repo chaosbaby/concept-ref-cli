@@ -1,0 +1,22 @@
+// 核心保护：不要同步 Git 数据库
+.git
+
+// 业务要求：不要同步数据库文件
+data/*.db
+data/
+*.db
+
+// 保持本地环境独立：不要同步 Python 环境和缓存
+.venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+
+// 忽略分发和元数据
+build
+dist
+*.egg-info
+.DS_Store
+.gemini
+.stversions

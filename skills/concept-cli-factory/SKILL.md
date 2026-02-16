@@ -8,7 +8,7 @@ tags: []
 
 # Concept CLI Factory (Master Edition)
 
-本技能通过渐进式交互与严格的架构标准，引导协作构建高性能 CLI 工具。
+本技能通过渐进式交互与严格s的架构标准，引导协作构建高性能 CLI 工具。
 
 ## 1. 交互原则 (Interaction Protocols)
 
@@ -34,19 +34,23 @@ tags: []
 3. **输出报告**: 包含数据规模预估、建议 Schema、发现的额外功能及潜在问题。
 4. **决策点**: 询问用户是否同意诊断结果，并选择首选功能。
 
-### Phase 1: 基础构建 (Base Implementation)
-- `init`: 高性能 SQLite 导入（支持 `batch-loader`）。
-- `search`: FTS5 全文搜索 + 精确匹配 + 权重排序。
-- `stream`: 支持管道输入（stdin）和输出（NDJSON/Plain）。
-- `completion`: 自动安装 Shell 补全。
+### Phase 1: 规范激活 (Spec Activation)
+1. **关联查找**: 根据用户选择的特性，从 `features-manifest.json` 中查找对应的 `spec_map`。
+2. **加载 Spec**: 强制读取 `specs/<spec_map>.md` 以加载精细化的开发标准。
+3. **上下文对齐**: 在实现代码前，必须在心里（或通过输出）重申该 Spec 中的关键标准（如“管道处理缓存大小”）。
 
-### Phase 2: 渐进式增强 (Interactive Expansion)
+### Phase 2: 基础构建 (Base Implementation)
+- 遵循 `data-ops.md` 进行 SQLite 导入与索引构建。
+- 遵循 `io-presentation.md` 确保四大输出协议（show/plain/json/ndjson）的统一性。
+- 遵循 `query-engine.md` 实现 FTS5 权重排序。
+
+### Phase 3: 渐进式增强 (Interactive Expansion)
 - **子命令隔离**: 不同数据源拥有独立命令空间。
 - **特性矩阵**: 动态读取 `features-manifest.json` 展示特性状态。
 - **智能排版**: 根据数据内容自动触发垂直排版。
 - **随机灵感**: 提供高质量随机推荐。
 
-### Phase 3: 交付与体检 (Delivery & Doctor)
+### Phase 4: 交付与体检 (Delivery & Doctor)
 - `doctor`: 检查数据库状态、索引健康度。
 - `schema`: 自省底层字段定义。
 - `readme`: 自动生成使用说明。
@@ -80,3 +84,4 @@ tags: []
    ## 4. 目录真理源 (Directory Mapping)
 - **Source of Truth**: `skills/concept-cli-factory/`
 - **Metadata**: 特性状态记录在 `references/features-manifest.json`。
+- **Specs**: 聚类规范存储在 `specs/`。

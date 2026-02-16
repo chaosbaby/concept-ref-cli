@@ -5,4 +5,5 @@
 - [lexicon-modular-refactor](./tracks/lexicon-modular-refactor/index.md): Multi-source isolated refactor for Lexicon.
 - [dedup-fix](./tracks/dedup-fix/index.md): Data deduplication and Factory skill enhancement.
 - [xh-enhancement](./tracks/xh-enhancement/index.md): Master-level enhancement for xh command.
+- [feat-spec-layering](./tracks/feat-spec-layering/index.md): Layered specification system for precision guidance.
 - [lexicon-refactor](./tracks/lexicon-refactor/index.md): Standardization and migration of lexicon data as Unix-style components.
