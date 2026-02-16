@@ -1,7 +1,7 @@
 # Spec Layering Refactor
 
-- **Status**: Active
-- **Branch**: `feature/feat-spec-layering`
+- **Status**: Completed
+- **Merged to**: `develop`
 - **Plan**: [plan.md](./plan.md)
 
 ## Description
