@@ -58,10 +58,13 @@ tags: []
 ## 3. 架构标准 (The Standards)
 
 1. **特性驱动 (Feature-Driven)**: 
-   - `features` 命令必须实时反映 `features-manifest.json` 中的状态。
-   - **权重排序 (Ranked Display)**: 输出必须根据 `rank` 字段从高到低排列，优先展示核心与高价值特性。
-   - 状态词：`implemented` (✅ OK), `recommended`/`optional` (⚪ OPT), `na` (🚫 N/A - 抵触/不兼容)。
-   - `implemented` 状态应与代码逻辑严格对齐。
+   - `features` 命令必须以**全局特性清单** (`skills/concept-cli-factory/references/features-manifest.json`) 为基准，**逐一对比**本地命令的 `manifest.json`，以展示每个特性的完整实现状态。
+   - **权重排序 (Ranked Display)**: 输出必须根据全局清单中的 `rank` 字段从高到低排列，优先展示核心与高价值特性。
+   - **状态词汇与逻辑**:
+     - `✅ OK`: 本地 `manifest.json` 中存在对应 `id` 且 `status` 为 `implemented`。
+     - `🚫 N/A`: 本地 `manifest.json` 中存在对应 `id` 且 `status` 为 `na` (不适用)。
+     - `❌ MISSING`: 全局清单中特性为 `mandatory`，但在本地 `manifest.json` 中未实现或缺失。
+     - `⚪ OPT`: 除以上情况外的所有其他特性 (例如，全局为 `recommended` 或 `optional` 但本地未实现)。
    - **高亮展示 (Search Highlighting)**: 在 `-o show` 模式下，输出内容必须对搜索关键词（Query）进行视觉高亮处理，并配合颜色排版。而在 `-o plain` 模式下，严禁包含任何 ANSI 颜色或排版装饰，仅输出纯文本。
 2. **多维过滤 (Filter Matrix)**:
    - 必须支持区间过滤（`min-max`）、集合过滤（`in/not in`）。
