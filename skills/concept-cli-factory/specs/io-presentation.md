@@ -14,3 +14,4 @@ Standards for how data enters and leaves the CLI.
 2. **Color Integrity**: `--plain` mode MUST strip all ANSI codes.
 3. **Layout**: Vertical layout triggers automatically if content width > Terminal width.
 4. **JSON**: Always output as a list `[]`, while `ndjson` is one object per line.
+5. **Content Views**: For commands displaying potentially large text fields (e.g., search results), a `--full` flag MUST be provided to switch between a default `snippet` view and a `full-text` view.

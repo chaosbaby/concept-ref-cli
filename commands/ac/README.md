@@ -32,21 +32,25 @@ ac sync
 使用全文搜索功能，支持多种输出格式、Unix 管道流、Markdown 增强排版和结果限制。
 
 ```bash
-ac search <query> [-o <output_mode>] [--limit <number>] [--stdin]
+ac search <query> [-o <output_mode>] [--limit <number>] [--stdin] [--full]
 ```
 
 -   `<query>`: 搜索关键词。如果为 `-`，则从 stdin 读取。
 -   `--stdin`: 从 stdin 读取搜索关键词。
+-   `--full`: 显示完整的对话全文，而非摘要。
 -   `-o, --output`: 输出模式，可选值：`show` (默认，带高亮和排版), `plain` (纯文本), `json` (JSON 数组), `ndjson` (换行符分隔的 JSON 对象)。
 -   `--limit`: 限制返回结果的数量，默认为 10 (可通过 `config` 配置)。
 
 **示例**:
 ```bash
+# 基本搜索
 ac search "NeoVim"
-ac search "AI 伦理" -o json
+
+# 查看完整对话
+ac search "NeoVim" --full
+
 # Unix 管道流支持
 echo "Gemini" | ac search -
-ac search --stdin < query_file.txt
 ```
 
 ### `ac doctor` - 数据库健康诊断

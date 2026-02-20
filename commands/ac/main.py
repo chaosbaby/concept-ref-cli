@@ -182,7 +182,8 @@ def sync(data_dir):
 @click.option('--limit', type=int, help='Maximum number of results to return')
 @click.option('--source', shell_complete=source_completer, help='Filter by source')
 @click.option('--stdin', is_flag=True, help='Read query from stdin')
-def search(query, output, limit, source, stdin):
+@click.option('--full', is_flag=True, help='Display full conversation text instead of snippet.')
+def search(query, output, limit, source, stdin, full):
     """Search conversation history."""
     cfg = ConfigManager.load()
     output = output or cfg['output']
@@ -263,7 +264,32 @@ def search(query, output, limit, source, stdin):
             click.secho(f"【{r['source']}】", fg='yellow', nl=False)
             click.secho(f" {r['title']}", bold=True)
             
-            if 'highlight' in r.keys() and r['highlight']:
+            rule_len = min(term_width, 80)
+
+            if full:
+                # New Full-Text Logic
+                click.secho("  └─ Full Conversation:", dim=True)
+                cursor.execute("SELECT role, content FROM messages WHERE session_id = ? ORDER BY create_time ASC", (r['id'],))
+                messages = cursor.fetchall()
+                for i, msg in enumerate(messages):
+                    role = msg['role'].capitalize()
+                    role_color = 'blue' if msg['role'] == 'user' else 'green'
+                    
+                    is_last = i == len(messages) - 1
+                    
+                    click.secho(f"    ╭─ {role}", fg=role_color, bold=True)
+                    
+                    content = msg['content']
+                    content = re.sub(r'\*\*(.*?)\*\*', r'\033[1m\1\033[0m', content)
+                    content = re.sub(r'`(.*?)`', r'\033[36m\1\033[0m', content)
+                    
+                    wrapped_text = textwrap.fill(content, width=term_width - 8, initial_indent='    │ ', subsequent_indent='    │ ', break_long_words=False, replace_whitespace=False)
+                    click.echo(wrapped_text)
+                    if is_last:
+                        click.echo("    ╰" + "─" * (rule_len - 5))
+
+            elif 'highlight' in r.keys() and r['highlight']:
+                # Existing Snippet Logic
                 hl = r['highlight']
                 # Markdown-like highlighting
                 hl = re.sub(r'\*\*(.*?)\*\*', r'\033[1m\1\033[0m', hl) # Bold
@@ -275,7 +301,6 @@ def search(query, output, limit, source, stdin):
                 click.echo(f"{prefix}{hl}")
             
             # Simple horizontal rule
-            rule_len = min(term_width, 60)
             click.secho("-" * rule_len, dim=True)
     
     conn.close()
