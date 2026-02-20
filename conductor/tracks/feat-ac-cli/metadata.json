@@ -1,0 +1,7 @@
+{
+  "id": "feat-ac-cli",
+  "title": "Implementation of AI-Chat (ac) CLI",
+  "status": "in-progress",
+  "created_at": "2026-02-20",
+  "dependencies": []
+}

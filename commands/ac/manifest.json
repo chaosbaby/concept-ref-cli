@@ -1,0 +1,80 @@
+[
+  {
+    "id": "fts-engine",
+    "category": "Core",
+    "label": "FTS5 全文索引",
+    "description": "基于 SQLite FTS5 的高性能对话内容搜索。",
+    "status": "implemented",
+    "spec_map": "query-engine",
+    "cli_integration": {
+      "command": "search",
+      "flags": ["--limit", "--field"]
+    },
+    "rank": 100
+  },
+  {
+    "id": "unified-output-protocol",
+    "category": "Interop",
+    "label": "标准输出协议",
+    "description": "支持 show, plain, json, ndjson 四大模式。",
+    "status": "implemented",
+    "spec_map": "io-presentation",
+    "cli_integration": {
+      "command": "search",
+      "flags": ["-o"]
+    },
+    "rank": 100
+  },
+  {
+    "id": "incremental-sync",
+    "category": "Data",
+    "label": "增量同步引擎",
+    "description": "增量同步 sources/ai-chat/conversations 目录下的 JSON 日志。",
+    "status": "implemented",
+    "spec_map": "data-ops",
+    "cli_integration": {
+      "command": "sync",
+      "flags": []
+    },
+    "rank": 95
+  },
+  {
+    "id": "doctor-stat",
+    "category": "Maintenance",
+    "label": "健康诊断",
+    "description": "DB 完整性及统计分布检查。",
+    "status": "implemented",
+    "spec_map": "data-ops",
+    "cli_integration": {
+      "command": "doctor",
+      "flags": []
+    },
+    "rank": 90
+  },
+  {
+    "id": "schema-reflection",
+    "category": "Core",
+    "label": "Schema 自省",
+    "description": "输出底层数据库字段定义。",
+    "status": "implemented",
+    "spec_map": "data-ops",
+    "cli_integration": {
+      "command": "schema",
+      "flags": []
+    },
+    "rank": 90
+  },
+  {
+    "id": "config-manager",
+    "category": "UX",
+    "label": "配置管理",
+    "description": "持久化用户默认参数（如默认输出格式）。",
+    "status": "recommended",
+    "spec_map": "system-config",
+    "cli_integration": {
+      "command": "config",
+      "flags": ["set", "get"]
+    },
+    "rank": 80
+  }
+]
