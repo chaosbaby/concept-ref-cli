@@ -8,6 +8,9 @@ from pathlib import Path
 from datetime import datetime
 import unicodedata # For CJK character width calculation
 import subprocess
+import shutil
+import textwrap
+import re
 
 # Standard paths
 DB_PATH = os.path.expanduser("~/.ac_chat.db")
@@ -178,11 +181,19 @@ def sync(data_dir):
 @click.option('--output', '-o', type=click.Choice(['show', 'plain', 'json', 'ndjson']), help='Output mode')
 @click.option('--limit', type=int, help='Maximum number of results to return')
 @click.option('--source', shell_complete=source_completer, help='Filter by source')
-def search(query, output, limit, source):
+@click.option('--stdin', is_flag=True, help='Read query from stdin')
+def search(query, output, limit, source, stdin):
     """Search conversation history."""
     cfg = ConfigManager.load()
     output = output or cfg['output']
     
+    if stdin or query == '-':
+        if not sys.stdin.isatty():
+            query = sys.stdin.read().strip()
+        else:
+            click.secho("Reading from stdin... (Press Ctrl+D to finish)", dim=True)
+            query = sys.stdin.read().strip()
+
     effective_limit = limit if limit is not None else cfg.get('limit', 10)
     
     conn = get_db()
@@ -245,15 +256,27 @@ def search(query, output, limit, source):
         for r in processed_rows:
             click.echo(f"{r['id']} | {r['title']}")
     else: # show
+        term_width = shutil.get_terminal_size().columns
         for r in processed_rows:
             dt = datetime.fromtimestamp(r['create_time']).strftime('%Y-%m-%d %H:%M')
             click.secho(f"[{dt}] ", dim=True, nl=False)
             click.secho(f"【{r['source']}】", fg='yellow', nl=False)
             click.secho(f" {r['title']}", bold=True)
+            
             if 'highlight' in r.keys() and r['highlight']:
-                hl = r['highlight'].replace('>', '\033[32m').replace('<', '\033[0m')
-                click.echo(f"  └── Snippet: {hl}")
-            click.echo("-" * 40)
+                hl = r['highlight']
+                # Markdown-like highlighting
+                hl = re.sub(r'\*\*(.*?)\*\*', r'\033[1m\1\033[0m', hl) # Bold
+                hl = re.sub(r'`(.*?)`', r'\033[36m\1\033[0m', hl)      # Code
+                # FTS5 Highlight markers
+                hl = hl.replace('>', '\033[1;32m').replace('<', '\033[0m')
+                
+                prefix = "  └── Snippet: "
+                click.echo(f"{prefix}{hl}")
+            
+            # Simple horizontal rule
+            rule_len = min(term_width, 60)
+            click.secho("-" * rule_len, dim=True)
     
     conn.close()
 

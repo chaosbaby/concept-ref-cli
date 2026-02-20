@@ -13,6 +13,32 @@
     "rank": 100
   },
   {
+    "id": "pipe-stream",
+    "category": "Core",
+    "label": "Unix 管道流",
+    "description": "支持从 stdin 读取查询及结果管道输出。",
+    "status": "implemented",
+    "spec_map": "io-presentation",
+    "cli_integration": {
+      "command": "search",
+      "flags": ["--stdin", "-"]
+    },
+    "rank": 100
+  },
+  {
+    "id": "sub-command-isolation",
+    "category": "Architecture",
+    "label": "子命令隔离",
+    "description": "不同功能源拥有独立命令空间（如 lexicon dict）。",
+    "status": "implemented",
+    "spec_map": "system-config",
+    "cli_integration": {
+      "command": "ac",
+      "flags": ["search"]
+    },
+    "rank": 100
+  },
+  {
     "id": "unified-output-protocol",
     "category": "Interop",
     "label": "标准输出协议",
@@ -87,6 +113,19 @@
     "cli_integration": {
       "command": "config",
       "flags": ["set", "get"]
+    },
+    "rank": 80
+  },
+  {
+    "id": "rich-render-engine",
+    "category": "UX",
+    "label": "智能排版引擎",
+    "description": "根据数据内容（如诗词、长文）自动触发垂直排版或分段。",
+    "status": "implemented",
+    "spec_map": "io-presentation",
+    "cli_integration": {
+      "command": "search",
+      "flags": ["-o show"]
     },
     "rank": 80
   }

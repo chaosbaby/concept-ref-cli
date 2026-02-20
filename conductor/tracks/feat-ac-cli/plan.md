@@ -15,6 +15,8 @@
 - [x] 实现 FTS5 全文检索逻辑
 - [x] 完善四大输出协议: `show`, `plain`, `json`, `ndjson`
 - [x] 实现搜索高亮 (Show 模式)
+- [x] 实现 Unix 管道流 (pipe-stream)
+- [x] 实现智能排版引擎 (rich-render-engine)
 
 ## Phase 4: Factory Standards
 - [x] 实现 `features` 命令 (动态读取 manifest)

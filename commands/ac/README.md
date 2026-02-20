@@ -29,13 +29,14 @@ ac sync
 
 ### `ac search` - 搜索对话历史
 
-使用全文搜索功能，支持多种输出格式和结果限制。
+使用全文搜索功能，支持多种输出格式、Unix 管道流、Markdown 增强排版和结果限制。
 
 ```bash
-ac search <query> [-o <output_mode>] [--limit <number>]
+ac search <query> [-o <output_mode>] [--limit <number>] [--stdin]
 ```
 
--   `<query>`: 搜索关键词。
+-   `<query>`: 搜索关键词。如果为 `-`，则从 stdin 读取。
+-   `--stdin`: 从 stdin 读取搜索关键词。
 -   `-o, --output`: 输出模式，可选值：`show` (默认，带高亮和排版), `plain` (纯文本), `json` (JSON 数组), `ndjson` (换行符分隔的 JSON 对象)。
 -   `--limit`: 限制返回结果的数量，默认为 10 (可通过 `config` 配置)。
 
@@ -43,7 +44,9 @@ ac search <query> [-o <output_mode>] [--limit <number>]
 ```bash
 ac search "NeoVim"
 ac search "AI 伦理" -o json
-ac search "Agent" --limit 5
+# Unix 管道流支持
+echo "Gemini" | ac search -
+ac search --stdin < query_file.txt
 ```
 
 ### `ac doctor` - 数据库健康诊断
