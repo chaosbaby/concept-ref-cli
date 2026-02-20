@@ -6,6 +6,8 @@ import sys
 import time
 from pathlib import Path
 from datetime import datetime
+import unicodedata # For CJK character width calculation
+import subprocess
 
 # Standard paths
 DB_PATH = os.path.expanduser("~/.ac_chat.db")
@@ -42,6 +44,35 @@ def get_db():
 
 def is_headless():
     return not sys.stdout.isatty() or os.environ.get('HEADLESS') == '1'
+
+# --- Utility functions for CJK character display width ---
+def get_display_width(s):
+    """Calculate the actual display width of a string (considering CJK characters)."""
+    width = 0
+    for char in s:
+        if unicodedata.east_asian_width(char) in ('W', 'F'):
+            width += 2
+        else:
+            width += 1
+    return width
+
+def pad_cjk(s, width):
+    """Pad string considering CJK width."""
+    d_width = get_display_width(s)
+    return s + " " * max(0, width - d_width)
+# --- End of Utility functions ---
+
+
+# --- Dynamic Completers ---
+def source_completer(ctx, param, incomplete):
+    """Dynamically complete --source argument."""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT DISTINCT source FROM sessions WHERE source LIKE ?", (f'%{incomplete}%',))
+    sources = [row['source'] for row in cursor.fetchall()]
+    conn.close()
+    return sources
+
 
 @click.group()
 def cli():
@@ -146,66 +177,65 @@ def sync(data_dir):
 @click.argument('query', required=False)
 @click.option('--output', '-o', type=click.Choice(['show', 'plain', 'json', 'ndjson']), help='Output mode')
 @click.option('--limit', type=int, help='Maximum number of results to return')
-def search(query, output, limit):
+@click.option('--source', shell_complete=source_completer, help='Filter by source')
+def search(query, output, limit, source):
     """Search conversation history."""
     cfg = ConfigManager.load()
     output = output or cfg['output']
     
-    # Prioritize command-line limit, then config limit, then hardcoded default
     effective_limit = limit if limit is not None else cfg.get('limit', 10)
     
     conn = get_db()
     cursor = conn.cursor()
     
     processed_rows = []
-
-    if not query:
-        cursor.execute("SELECT * FROM sessions ORDER BY create_time DESC LIMIT ?", (effective_limit,))
-        rows = cursor.fetchall()
-        processed_rows = [dict(r) for r in rows]
-    else:
-        # Step 1: Search FTS5 and get session_ids and snippets
-        fts_sql = """
-        SELECT session_id, snippet(search_index, 2, '>', '<', '...', 10) as highlight, rank
-        FROM search_index
-        WHERE search_index MATCH ?
-        ORDER BY rank
-        LIMIT ?
-        """
-        cursor.execute(fts_sql, (query, effective_limit))
+    
+    # Parameters and query parts
+    params = []
+    where_clauses = []
+    
+    # FTS query to get session_ids
+    session_snippets = {}
+    if query:
+        fts_sql = "SELECT session_id, snippet(search_index, 2, '>', '<', '...', 10) as highlight FROM search_index WHERE search_index MATCH ? ORDER BY rank"
+        cursor.execute(fts_sql, (query,))
         fts_results = cursor.fetchall()
-
-        # Collect unique session_ids and map snippets
-        session_snippets = {}
-        # Use an ordered list to preserve FTS rank order
-        ranked_session_ids = [] 
-        for r in fts_results:
-            if r['session_id'] not in session_snippets: # Only take the first snippet for a session
-                ranked_session_ids.append(r['session_id'])
-                session_snippets[r['session_id']] = r['highlight']
-
-        if not ranked_session_ids:
+        
+        session_snippets = {r['session_id']: r['highlight'] for r in fts_results}
+        session_ids = list(session_snippets.keys())
+        
+        if not session_ids:
             click.echo("No results found.")
             conn.close()
             return
+            
+        where_clauses.append(f"id IN ({','.join('?' for _ in session_ids)})")
+        params.extend(session_ids)
 
-        # Step 2: Fetch full session details in the same order
-        session_placeholders = ','.join('?' for _ in ranked_session_ids)
-        sessions_sql = f"SELECT * FROM sessions WHERE id IN ({session_placeholders})"
-        cursor.execute(sessions_sql, ranked_session_ids)
-        session_rows = cursor.fetchall()
-
-        # Create a map for quick lookup
-        session_map = {row['id']: dict(row) for row in session_rows}
-
-        # Combine session data with snippets, preserving FTS rank order
-        for sid in ranked_session_ids:
-            if sid in session_map:
-                row_dict = session_map[sid]
-                row_dict['highlight'] = session_snippets.get(sid, '')
-                processed_rows.append(row_dict)
+    # Source filter
+    if source:
+        where_clauses.append("source = ?")
+        params.append(source)
+        
+    # Construct the final query
+    sql = "SELECT * FROM sessions"
+    if where_clauses:
+        sql += " WHERE " + " AND ".join(where_clauses)
     
-    # Existing output formatting logic
+    sql += " ORDER BY create_time DESC LIMIT ?"
+    params.append(effective_limit)
+    
+    cursor.execute(sql, params)
+    rows = cursor.fetchall()
+    
+    # Re-add snippets and create processed_rows
+    for row in rows:
+        row_dict = dict(row)
+        if query:
+            row_dict['highlight'] = session_snippets.get(row['id'], '')
+        processed_rows.append(row_dict)
+    
+    # ... (output formatting)
     if output == 'json':
         click.echo(json.dumps(processed_rows, ensure_ascii=False, indent=2))
     elif output == 'ndjson':
@@ -261,24 +291,70 @@ def schema():
     conn.close()
 
 @cli.command()
-def features():
-    """List implemented and recommended features."""
-    manifest_path = Path(__file__).parent / "manifest.json"
-    if not manifest_path.exists():
-        click.secho("❌ manifest.json not found.", fg='red')
+@click.option('--status', type=click.Choice(['ok', 'na', 'miss', 'opt']), help='Filter by status')
+def features(status):
+    """Display the full Capability Matrix with accurate status."""
+    global_manifest_path = Path("skills/concept-cli-factory/references/features-manifest.json")
+    local_manifest_path = Path(__file__).parent / "manifest.json"
+
+    if not global_manifest_path.exists():
+        click.secho("❌ Global Features Manifest not found.", fg='red')
         return
-    
-    with open(manifest_path, 'r') as f:
-        manifest = json.load(f)
-    
+    if not local_manifest_path.exists():
+        click.secho("❌ Local Features Manifest not found.", fg='red')
+        return
+
+    with open(global_manifest_path, 'r') as f:
+        global_features = json.load(f)
+    with open(local_manifest_path, 'r') as f:
+        local_features_data = json.load(f)
+        local_feature_map = {f['id']: f for f in local_features_data} # Assuming local_features_data is a list of features
+
     click.secho(f"\n🚀 AI-Chat CLI Feature Matrix\n", fg='cyan', bold=True)
     click.echo(f" {'STATUS':<10} | {'FEATURE':<20} | {'DESCRIPTION'}")
     click.echo("-" * 90)
     
-    for feat in manifest:
-        st = feat['status']
-        st_styled = click.style("✅ OK" if st == 'implemented' else "⚪ OPT", fg='green' if st == 'implemented' else 'yellow')
-        click.echo(f" {st_styled:<18} | {feat['label']:<20} | {feat['description']}")
+    # Sort global features by rank (highest first)
+    sorted_global_features = sorted(global_features, key=lambda x: x.get('rank', 0), reverse=True)
+
+    for g_feat in sorted_global_features:
+        f_id = g_feat['id']
+        f_status_display = "⚪ OPT" # Default to optional
+        f_color = "yellow"
+        dim = False
+
+        if f_id in local_feature_map:
+            l_feat = local_feature_map[f_id]
+            if l_feat['status'] == 'implemented':
+                f_status_display = "✅ OK"
+                f_color = "green"
+            elif l_feat['status'] == 'na':
+                f_status_display = "🚫 N/A"
+                f_color = "red"
+                dim = True
+        else:
+            if g_feat.get('status') == 'mandatory':
+                f_status_display = "❌ MISSING"
+                f_color = "red"
+            elif g_feat.get('status') == 'recommended':
+                f_status_display = "⚪ OPT" # Explicitly optional for recommended not implemented
+                f_color = "yellow"
+            elif g_feat.get('status') == 'optional':
+                f_status_display = "⚪ OPT"
+                f_color = "yellow"
+
+        # Filter if --status option is used
+        if status:
+            if status == 'ok' and f_status_display != "✅ OK": continue
+            if status == 'na' and f_status_display != "🚫 N/A": continue
+            if status == 'miss' and f_status_display != "❌ MISSING": continue
+            if status == 'opt' and f_status_display != "⚪ OPT": continue
+        
+        st_styled = click.style(f_status_display, fg=f_color, dim=dim)
+        st_padding = " " * (10 - get_display_width(f_status_display))
+        feat_label = pad_cjk(g_feat['label'], 20)
+        
+        click.echo(f" {st_styled}{st_padding} | {feat_label} | {g_feat['description']}")
     click.echo("")
 
 # -- Config Commands --
@@ -316,6 +392,77 @@ def config_get(key):
     else:
         click.echo(json.dumps(cfg, indent=2))
 
+# -- Completion Command --
+@cli.group(name='completion')
+def completion_cmd():
+    """Manage shell completion scripts."""
+    pass
+
+@completion_cmd.command(name='show')
+@click.argument('shell', type=click.Choice(['bash', 'zsh', 'fish']), required=False)
+def completion_show(shell):
+    """Show the completion script for the specified shell."""
+    if not shell:
+        shell = os.path.basename(os.environ.get('SHELL', 'bash'))
+    
+    prog_name = "ac"
+    
+    # Click's completion generation is triggered by environment variables.
+    # We spawn a new process for the CLI itself with the right env var.
+    env = os.environ.copy()
+    env[f'_{prog_name.upper()}_COMPLETE'] = f'{shell}_source'
+    
+    result = subprocess.run([prog_name], env=env, capture_output=True, text=True, shell=False)
+    click.echo(result.stdout)
+
+
+@completion_cmd.command(name='install')
+@click.argument('shell', type=click.Choice(['bash', 'zsh', 'fish']), required=False)
+def completion_install(shell):
+    """Install the completion script for the specified shell."""
+    if not shell:
+        shell = os.path.basename(os.environ.get('SHELL', 'bash'))
+
+    prog_name = "ac"
+    rc_file = None
+    install_line = f'eval "$(_{prog_name.upper()}_COMPLETE={shell}_source {prog_name})"'
+
+    if shell == 'bash':
+        rc_file = os.path.expanduser("~/.bashrc")
+    elif shell == 'zsh':
+        rc_file = os.path.expanduser("~/.zshrc")
+    elif shell == 'fish':
+        fish_completion_path = os.path.expanduser(f"~/.config/fish/completions/{prog_name}.fish")
+        if not os.path.exists(os.path.dirname(fish_completion_path)):
+            os.makedirs(os.path.dirname(fish_completion_path))
+        
+        env = os.environ.copy()
+        env[f'_{prog_name.upper()}_COMPLETE'] = 'fish_source'
+        
+        with open(fish_completion_path, 'w') as f:
+            result = subprocess.run([prog_name], env=env, capture_output=True, text=True)
+            f.write(result.stdout)
+            
+        click.secho(f"✅ Installed completion for fish at {fish_completion_path}", fg='green')
+        click.echo("Please restart your shell to activate.")
+        return
+
+    if not rc_file or not os.path.exists(rc_file):
+        click.secho(f"Could not find shell config file for {shell}.", fg='red')
+        return
+
+    with open(rc_file, 'r+') as f:
+        content = f.read()
+        if install_line in content:
+            click.secho(f"✅ Completion already installed in {rc_file}", fg='yellow')
+            return
+        
+        f.write(f"\n# {prog_name} completion\n")
+        f.write(f"{install_line}\n")
+    
+    click.secho(f"✅ Installed completion in {rc_file}", fg='green')
+    click.echo("Please restart your shell or run:")
+    click.echo(f"  source {rc_file}")
 
 if __name__ == '__main__':
     cli()

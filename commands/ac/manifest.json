@@ -65,11 +65,24 @@
     "rank": 90
   },
   {
+    "id": "shell-completion-manager",
+    "category": "UX",
+    "label": "补全管理器",
+    "description": "提供 show (源码展示) 和 install (自动注入) 功能。",
+    "status": "implemented",
+    "spec_map": "io-presentation",
+    "cli_integration": {
+      "command": "completion",
+      "flags": ["show", "install"]
+    },
+    "rank": 90
+  },
+  {
     "id": "config-manager",
     "category": "UX",
     "label": "配置管理",
     "description": "持久化用户默认参数（如默认输出格式）。",
-    "status": "recommended",
+    "status": "implemented",
     "spec_map": "system-config",
     "cli_integration": {
       "command": "config",
