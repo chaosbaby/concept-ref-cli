@@ -84,10 +84,19 @@ def cli():
 
 @cli.command()
 @click.option('--data-dir', default="sources/ai-chat/conversations", help='Directory containing conversation JSONs')
-def sync(data_dir):
-    """Incremental sync from JSON logs to SQLite."""
+@click.option('--rebuild', is_flag=True, help='Drop all tables and rebuild the database from scratch.')
+def sync(data_dir, rebuild):
+    """Incremental sync from JSON logs to SQLite. Use --rebuild to start fresh."""
     conn = get_db()
     cursor = conn.cursor()
+
+    if rebuild:
+        click.confirm("Are you sure you want to drop all data and rebuild the database?", abort=True)
+        click.echo("Dropping all tables...")
+        cursor.execute("DROP TABLE IF EXISTS sessions")
+        cursor.execute("DROP TABLE IF EXISTS messages")
+        cursor.execute("DROP TABLE IF EXISTS search_index")
+        click.secho("All tables dropped.", fg='yellow')
     
     # Initialize Schema
     cursor.execute("""
@@ -108,9 +117,11 @@ def sync(data_dir):
         create_time REAL,
         FOREIGN KEY(session_id) REFERENCES sessions(id)
     )""")
+    # Schema upgrade: Add message_id to link back to the exact message
     cursor.execute("""
     CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
         session_id UNINDEXED,
+        message_id UNINDEXED,
         title,
         content,
         tokenize='unicode61'
@@ -130,7 +141,7 @@ def sync(data_dir):
             # Check if sync needed
             cursor.execute("SELECT file_mtime FROM sessions WHERE id = ?", (f_path.stem,))
             row = cursor.fetchone()
-            if row and row['file_mtime'] >= mtime:
+            if row and row['file_mtime'] >= mtime and not rebuild:
                 continue
 
             try:
@@ -161,12 +172,13 @@ def sync(data_dir):
                     INSERT INTO messages (session_id, role, content, create_time)
                     VALUES (?, ?, ?, ?)
                     """, (sid, m['role'], content, m.get('create_time')))
+                    message_id = cursor.lastrowid
                     
-                    # Indexing
+                    # Indexing with message_id
                     cursor.execute("""
-                    INSERT INTO search_index (session_id, title, content)
-                    VALUES (?, ?, ?)
-                    """, (sid, title, content))
+                    INSERT INTO search_index (session_id, message_id, title, content)
+                    VALUES (?, ?, ?, ?)
+                    """, (sid, message_id, title, content))
                 
                 new_count += 1
             except Exception as e:
@@ -174,7 +186,10 @@ def sync(data_dir):
     
     conn.commit()
     conn.close()
-    click.secho(f"✅ Sync complete. {new_count} files updated.", fg='green')
+    if rebuild:
+        click.secho(f"✅ Rebuild complete. {new_count} files processed.", fg='green')
+    else:
+        click.secho(f"✅ Sync complete. {new_count} files updated.", fg='green')
 
 @cli.command()
 @click.argument('query', required=False)
@@ -182,9 +197,9 @@ def sync(data_dir):
 @click.option('--limit', type=int, help='Maximum number of results to return')
 @click.option('--source', shell_complete=source_completer, help='Filter by source')
 @click.option('--stdin', is_flag=True, help='Read query from stdin')
-@click.option('--full', is_flag=True, help='Display full conversation text instead of snippet.')
-def search(query, output, limit, source, stdin, full):
-    """Search conversation history."""
+@click.option('--mode', type=click.Choice(['snippet', 'message', 'session']), default='snippet', help='Search result granularity.')
+def search(query, output, limit, source, stdin, mode):
+    """Search conversation history with different granularity modes."""
     cfg = ConfigManager.load()
     output = output or cfg['output']
     
@@ -195,20 +210,39 @@ def search(query, output, limit, source, stdin, full):
             click.secho("Reading from stdin... (Press Ctrl+D to finish)", dim=True)
             query = sys.stdin.read().strip()
 
+    if not query:
+        click.echo(cli.get_command(ctx=click.Context(cli), name='search').get_help(click.Context(cli)))
+        return
+
     effective_limit = limit if limit is not None else cfg.get('limit', 10)
     
     conn = get_db()
     cursor = conn.cursor()
     
-    processed_rows = []
+    results = []
     
-    # Parameters and query parts
-    params = []
-    where_clauses = []
-    
-    # FTS query to get session_ids
-    session_snippets = {}
-    if query:
+    # -- Message Mode Logic --
+    if mode == 'message':
+        sql = """
+            SELECT
+                s.id as session_id,
+                s.title as session_title,
+                s.source as session_source,
+                m.role,
+                m.content,
+                m.create_time,
+                snippet(si, 3, '>', '<', '...', 20) as highlight
+            FROM search_index AS si
+            JOIN messages AS m ON si.message_id = m.id
+            JOIN sessions AS s ON si.session_id = s.id
+            WHERE si.search_index MATCH ? ORDER BY m.create_time DESC LIMIT ?
+        """
+        cursor.execute(sql, (query, effective_limit))
+        results = [dict(row) for row in cursor.fetchall()]
+
+    # -- Snippet & Session Mode Logic --
+    else:
+        session_snippets = {}
         fts_sql = "SELECT session_id, snippet(search_index, 2, '>', '<', '...', 10) as highlight FROM search_index WHERE search_index MATCH ? ORDER BY rank"
         cursor.execute(fts_sql, (query,))
         fts_results = cursor.fetchall()
@@ -221,64 +255,80 @@ def search(query, output, limit, source, stdin, full):
             conn.close()
             return
             
-        where_clauses.append(f"id IN ({','.join('?' for _ in session_ids)})")
-        params.extend(session_ids)
+        params = list(session_ids)
+        where_clauses = [f"id IN ({','.join('?' for _ in session_ids)})"]
 
-    # Source filter
-    if source:
-        where_clauses.append("source = ?")
-        params.append(source)
+        if source:
+            where_clauses.append("source = ?")
+            params.append(source)
+            
+        sql = "SELECT * FROM sessions WHERE " + " AND ".join(where_clauses) + " ORDER BY create_time DESC LIMIT ?"
+        params.append(effective_limit)
         
-    # Construct the final query
-    sql = "SELECT * FROM sessions"
-    if where_clauses:
-        sql += " WHERE " + " AND ".join(where_clauses)
-    
-    sql += " ORDER BY create_time DESC LIMIT ?"
-    params.append(effective_limit)
-    
-    cursor.execute(sql, params)
-    rows = cursor.fetchall()
-    
-    # Re-add snippets and create processed_rows
-    for row in rows:
-        row_dict = dict(row)
-        if query:
+        cursor.execute(sql, params)
+        rows = cursor.fetchall()
+        
+        for row in rows:
+            row_dict = dict(row)
             row_dict['highlight'] = session_snippets.get(row['id'], '')
-        processed_rows.append(row_dict)
-    
-    # ... (output formatting)
+            results.append(row_dict)
+
+    # --- RENDERERS ---
     if output == 'json':
-        click.echo(json.dumps(processed_rows, ensure_ascii=False, indent=2))
+        click.echo(json.dumps(results, ensure_ascii=False, indent=2))
     elif output == 'ndjson':
-        for r in processed_rows:
+        for r in results:
             click.echo(json.dumps(r, ensure_ascii=False))
     elif output == 'plain':
-        for r in processed_rows:
-            click.echo(f"{r['id']} | {r['title']}")
+        if mode == 'message':
+            for r in results:
+                click.echo(f"[{r['session_title']}] {r['role']}: {r['content'][:100]}...")
+        else:
+            for r in results:
+                click.echo(f"{r['id']} | {r['title']}")
     else: # show
         term_width = shutil.get_terminal_size().columns
-        for r in processed_rows:
-            dt = datetime.fromtimestamp(r['create_time']).strftime('%Y-%m-%d %H:%M')
-            click.secho(f"[{dt}] ", dim=True, nl=False)
-            click.secho(f"【{r['source']}】", fg='yellow', nl=False)
-            click.secho(f" {r['title']}", bold=True)
-            
-            rule_len = min(term_width, 80)
+        rule_len = min(term_width, 80)
 
-            if full:
-                # New Full-Text Logic
+        if not results:
+            click.echo("No results found.")
+
+        for r in results:
+            if mode == 'message':
+                dt = datetime.fromtimestamp(r['create_time']).strftime('%Y-%m-%d %H:%M')
+                click.secho(f"[{dt}] ", dim=True, nl=False)
+                click.secho(f"【{r['session_title']}】", fg='yellow', nl=False)
+                
+                role = r['role'].capitalize()
+                role_color = 'blue' if r['role'] == 'user' else 'green'
+                click.secho(f" -> {role}", fg=role_color, bold=True)
+                
+                content = r['highlight'].replace('>', '\033[1;32m').replace('<', '\033[0m')
+                click.echo(f"  └── {content}")
+
+            elif mode == 'snippet':
+                dt = datetime.fromtimestamp(r['create_time']).strftime('%Y-%m-%d %H:%M')
+                click.secho(f"[{dt}] ", dim=True, nl=False)
+                click.secho(f"【{r['source']}】", fg='yellow', nl=False)
+                click.secho(f" {r['title']}", bold=True)
+                hl = r['highlight'].replace('>', '\033[1;32m').replace('<', '\033[0m')
+                click.echo(f"  └── Snippet: {hl}")
+
+            elif mode == 'session':
+                dt = datetime.fromtimestamp(r['create_time']).strftime('%Y-%m-%d %H:%M')
+                click.secho(f"[{dt}] ", dim=True, nl=False)
+                click.secho(f"【{r['source']}】", fg='yellow', nl=False)
+                click.secho(f" {r['title']}", bold=True)
+                
                 click.secho("  └─ Full Conversation:", dim=True)
                 cursor.execute("SELECT role, content FROM messages WHERE session_id = ? ORDER BY create_time ASC", (r['id'],))
                 messages = cursor.fetchall()
                 for i, msg in enumerate(messages):
                     role = msg['role'].capitalize()
                     role_color = 'blue' if msg['role'] == 'user' else 'green'
-                    
                     is_last = i == len(messages) - 1
                     
                     click.secho(f"    ╭─ {role}", fg=role_color, bold=True)
-                    
                     content = msg['content']
                     content = re.sub(r'\*\*(.*?)\*\*', r'\033[1m\1\033[0m', content)
                     content = re.sub(r'`(.*?)`', r'\033[36m\1\033[0m', content)
@@ -288,19 +338,6 @@ def search(query, output, limit, source, stdin, full):
                     if is_last:
                         click.echo("    ╰" + "─" * (rule_len - 5))
 
-            elif 'highlight' in r.keys() and r['highlight']:
-                # Existing Snippet Logic
-                hl = r['highlight']
-                # Markdown-like highlighting
-                hl = re.sub(r'\*\*(.*?)\*\*', r'\033[1m\1\033[0m', hl) # Bold
-                hl = re.sub(r'`(.*?)`', r'\033[36m\1\033[0m', hl)      # Code
-                # FTS5 Highlight markers
-                hl = hl.replace('>', '\033[1;32m').replace('<', '\033[0m')
-                
-                prefix = "  └── Snippet: "
-                click.echo(f"{prefix}{hl}")
-            
-            # Simple horizontal rule
             click.secho("-" * rule_len, dim=True)
     
     conn.close()

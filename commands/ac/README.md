@@ -29,28 +29,33 @@ ac sync
 
 ### `ac search` - 搜索对话历史
 
-使用全文搜索功能，支持多种输出格式、Unix 管道流、Markdown 增强排版和结果限制。
+使用全文搜索功能，支持三种搜索粒度模式、Unix 管道流和多种输出格式。
 
 ```bash
-ac search <query> [-o <output_mode>] [--limit <number>] [--stdin] [--full]
+ac search <query> [--mode <mode>] [--limit <number>] [--stdin]
 ```
 
--   `<query>`: 搜索关键词。如果为 `-`，则从 stdin 读取。
+-   `<query>`: 搜索关键词。
+-   `--mode <mode>`: 设置搜索结果的粒度，决定了结果的展示方式。
+    -   `snippet` (默认): **摘要模式**。返回匹配的**会话**列表，并附带一条高亮的摘要。适合快速定位会话。
+    -   `message`: **消息模式**。返回匹配的**消息**列表，每条结果都是独立的消息，并注明其所属的会话。适合精准定位到具体某句话。
+    -   `session`: **会话全文模式**。返回匹配的**会话**列表，并展示该会话的完整上下文。
 -   `--stdin`: 从 stdin 读取搜索关键词。
--   `--full`: 显示完整的对话全文，而非摘要。
--   `-o, --output`: 输出模式，可选值：`show` (默认，带高亮和排版), `plain` (纯文本), `json` (JSON 数组), `ndjson` (换行符分隔的 JSON 对象)。
--   `--limit`: 限制返回结果的数量，默认为 10 (可通过 `config` 配置)。
+-   `--limit`: 限制返回结果的数量，默认为 10。
 
 **示例**:
 ```bash
-# 基本搜索
+# 默认使用 snippet 模式，快速浏览匹配的会话
 ac search "NeoVim"
 
-# 查看完整对话
-ac search "NeoVim" --full
+# 使用 message 模式，查看具体是哪几条消息命中了关键词
+ac search "NeoVim" --mode message
 
-# Unix 管道流支持
-echo "Gemini" | ac search -
+# 使用 session 模式，查看匹配会话的完整上下文
+ac search "NeoVim" --mode session
+
+# 结合管道使用
+echo "Python" | ac search - --mode message
 ```
 
 ### `ac doctor` - 数据库健康诊断
