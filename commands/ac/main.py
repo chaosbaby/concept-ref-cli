@@ -231,7 +231,7 @@ def search(query, output, limit, source, stdin, mode):
                 m.role,
                 m.content,
                 m.create_time,
-                snippet(si, 3, '>', '<', '...', 20) as highlight
+                snippet(search_index, 3, '>', '<', '...', 20) as highlight
             FROM search_index AS si
             JOIN messages AS m ON si.message_id = m.id
             JOIN sessions AS s ON si.session_id = s.id
