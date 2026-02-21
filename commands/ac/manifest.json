@@ -34,7 +34,7 @@
     "spec_map": "system-config",
     "cli_integration": {
       "command": "ac",
-      "flags": ["search"]
+      "flags": ["search", "messages", "sessions"]
     },
     "rank": 100
   },
@@ -50,6 +50,45 @@
       "flags": ["-o"]
     },
     "rank": 100
+  },
+  {
+    "id": "dynamic-completion",
+    "category": "UX",
+    "label": "动态参数补全",
+    "description": "为过滤器和排序参数提供基于数据库内容的动态 Shell 补全。",
+    "status": "implemented",
+    "spec_map": "io-presentation",
+    "cli_integration": {
+      "command": "messages",
+      "flags": ["--role <TAB>"]
+    },
+    "rank": 99
+  },
+  {
+    "id": "dynamic-sorting",
+    "category": "Core",
+    "label": "动态排序",
+    "description": "支持对任意数据库字段进行升序或降序排列。",
+    "status": "implemented",
+    "spec_map": "query-engine",
+    "cli_integration": {
+      "command": "messages",
+      "flags": ["--sort-by", "--sort-dir"]
+    },
+    "rank": 98
+  },
+  {
+    "id": "schema-aware-padding",
+    "category": "Interop",
+    "label": "Schema 动态补全",
+    "description": "查询结果自动基于表结构补全缺失字段，确保输出结构一致性。",
+    "status": "implemented",
+    "spec_map": "io-presentation",
+    "cli_integration": {
+      "command": "messages",
+      "flags": ["-o json"]
+    },
+    "rank": 98
   },
   {
     "id": "incremental-sync",

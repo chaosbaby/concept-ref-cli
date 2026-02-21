@@ -1,6 +1,7 @@
 import click
 import sqlite3
 import os
+import json
 from datetime import datetime
 
 class RangeParser:
@@ -34,21 +35,29 @@ class RangeParser:
             return f"{col_name} LIKE ?", [f'%{range_str}%']
 
 class DynamicOptions:
-    """Introspects DB schema and generates Click options dynamically."""
-    def __init__(self, db_path, table_name):
+    """Introspects DB schema and generates Click options with shell completion."""
+    def __init__(self, db_path, table_name, completer_factory=None):
         self.db_path = db_path
         self.table_name = table_name
         self.numeric_types = ['INT', 'INTEGER', 'REAL', 'FLOAT', 'DOUBLE']
         self.excluded_fields = [] 
+        self._schema_cache = None
+        self.completer_factory = completer_factory
 
     def get_schema(self):
+        if self._schema_cache:
+            return self._schema_cache
         if not os.path.exists(self.db_path): return []
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute(f"PRAGMA table_info({self.table_name})")
         schema = cursor.fetchall()
         conn.close()
+        self._schema_cache = schema
         return schema
+    
+    def get_column_names(self):
+        return [col[1] for col in self.get_schema()]
 
     def generate_options(self):
         options = []
@@ -58,10 +67,16 @@ class DynamicOptions:
             
             param_name = col_name.replace('_', '-')
             help_text = f"Filter by {col_name}."
-            if any(t in col_type for t in self.numeric_types):
+            is_numeric = any(t in col_type for t in self.numeric_types)
+            
+            completer = None
+            if not is_numeric and self.completer_factory:
+                completer = self.completer_factory(col_name)
+
+            if is_numeric:
                 options.append(click.Option([f'--{param_name}'], help=help_text + " (e.g., 1-5, 10,20)", type=str))
             else:
-                options.append(click.Option([f'--{param_name}'], help=help_text + " (text)", type=str))
+                options.append(click.Option([f'--{param_name}'], help=help_text + " (text)", type=str, shell_complete=completer))
         return options
 
     def add_to_command(self, command):
@@ -69,51 +84,77 @@ class DynamicOptions:
             command.params.append(option)
         return command
 
-def format_dynamic_output(row, mode, fields=None):
-    """Generic formatter for dynamic commands."""
-    data = dict(row)
-    if fields:
-        data = {k: v for k, v in data.items() if k in fields}
-    
-    if mode in ['json', 'ndjson']:
-        # Convert timestamp to ISO format for JSON
+def format_dynamic_output(row, mode, all_fields):
+    """Generic formatter for dynamic commands with schema padding."""
+    data = {field: row.get(field) for field in all_fields}
+
+    if mode == 'json':
         for k, v in data.items():
             if 'time' in k and isinstance(v, (int, float)):
-                data[k] = datetime.fromtimestamp(v).isoformat()
-        click.echo(click.style(f"Not implemented yet", fg='red'))
+                data[k] = datetime.fromtimestamp(v).isoformat() if v else None
+        click.echo(json.dumps(data, ensure_ascii=False, indent=2))
+    elif mode == 'ndjson':
+        for k, v in data.items():
+            if 'time' in k and isinstance(v, (int, float)):
+                data[k] = datetime.fromtimestamp(v).isoformat() if v else None
+        click.echo(json.dumps(data, ensure_ascii=False))
     elif mode == 'plain':
-        click.echo(" | ".join([str(data.get(k, '')) for k in (fields or data.keys())]))
+        click.echo(" | ".join([str(data.get(k, '')) for k in all_fields]))
     else: # show
-        for key, value in data.items():
+        for key in all_fields:
+            value = data.get(key)
             if 'time' in key and isinstance(value, (int, float)):
-                value = datetime.fromtimestamp(value).strftime('%Y-%m-%d %H:%M')
+                value = datetime.fromtimestamp(value).strftime('%Y-%m-%d %H:%M') if value else 'N/A'
             click.secho(f"{key}: ", fg='cyan', nl=False)
-            click.echo(str(value))
+            click.echo(str(value if value is not None else 'N/A'))
         click.echo("-" * 20)
 
 def create_table_search_command(db_path, table_name, fts_table=None):
     """
-    Factory to create a Click search command for a specific database table.
+    Factory to create a Click search command for a specific database table,
+    with dynamic filtering, sorting, and schema-aware output with shell completion.
     """
+    
+    # --- Shell Completion Factories ---
+    def make_value_completer(column_name):
+        def completer(ctx, param, incomplete):
+            try:
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                query = f"SELECT DISTINCT {column_name} FROM {table_name} WHERE {column_name} LIKE ? LIMIT 100"
+                cursor.execute(query, (f'{incomplete}%',))
+                values = [row[0] for row in cursor.fetchall() if row[0] is not None]
+                return values
+            except Exception:
+                return []
+            finally:
+                if 'conn' in locals() and conn: conn.close()
+        return completer
+
+    option_generator = DynamicOptions(db_path, table_name, completer_factory=make_value_completer)
+    valid_columns = option_generator.get_column_names()
+
+    def sort_by_completer(ctx, param, incomplete):
+        return [c for c in valid_columns if c.startswith(incomplete)]
+
+    # --- Command Definition ---
     @click.command(name=table_name, help=f"Search and filter records in the {table_name} table.")
     @click.argument('query', required=False)
     @click.option('--output', '-o', type=click.Choice(['show', 'plain', 'json', 'ndjson']), default='show', help='Output mode.')
     @click.option('--field', '-f', multiple=True, help='Select specific fields for output.')
     @click.option('--limit', type=int, default=10, help='Maximum number of results.')
     @click.option('--logic', type=click.Choice(['AND', 'OR']), default='AND', help='Logic to combine filters.')
+    @click.option('--sort-by', help='Column to sort by.', shell_complete=sort_by_completer)
+    @click.option('--sort-dir', type=click.Choice(['asc', 'desc']), default='desc', help='Sort direction.')
     @click.pass_context
-    def dynamic_search_cmd(ctx, query, output, field, limit, logic, **kwargs):
+    def dynamic_search_cmd(ctx, query, output, field, limit, logic, sort_by, sort_dir, **kwargs):
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
         where_clauses, params = [], []
         
-        # FTS search if query and fts_table are provided
         if query and fts_table:
-            # This part is complex; assumes a join key. For now, simple FTS.
-            # Example: find session_ids from FTS, then filter sessions table.
-            # This needs a more robust implementation based on actual schema relationships.
             click.secho(f"Note: FTS query on '{query}' is not fully implemented in this generic factory yet.", dim=True)
 
         processed_kwargs = {k.replace('-', '_'): v for k, v in kwargs.items()}
@@ -122,13 +163,25 @@ def create_table_search_command(db_path, table_name, fts_table=None):
                 c, p = RangeParser.to_sql(key, value)
                 if c: where_clauses.append(c); params.extend(p)
 
-        sql = f"SELECT * FROM {table_name}"
+        fields_to_select = ", ".join(field) if field else "*"
+        all_output_fields = list(field) if field else valid_columns
+
+        sql = f"SELECT {fields_to_select} FROM {table_name}"
         if where_clauses:
-            # Correctly join the clauses with the specified logic operator
             conditions = f" {logic} ".join(where_clauses)
             sql += f" WHERE {conditions}"
         
-        sql += " ORDER BY create_time DESC LIMIT ?"
+        if sort_by:
+            if sort_by in valid_columns:
+                sql += f" ORDER BY {sort_by} {sort_dir.upper()}"
+            else:
+                click.secho(f"Error: Invalid sort column '{sort_by}'. Valid options are: {', '.join(valid_columns)}", fg='red')
+                conn.close()
+                return
+        elif 'create_time' in valid_columns:
+            sql += " ORDER BY create_time DESC"
+
+        sql += " LIMIT ?"
         params.append(limit)
         
         try:
@@ -137,12 +190,13 @@ def create_table_search_command(db_path, table_name, fts_table=None):
             if not results:
                 click.secho(f"No results found in {table_name}.", fg='yellow')
                 return
+            
             for row in results:
-                format_dynamic_output(row, output, field)
+                format_dynamic_output(row, output, all_output_fields)
         except sqlite3.OperationalError as e:
             click.secho(f"DB Error: {e}\nQuery: {sql}\nParams: {params}", fg='red')
-        conn.close()
+        finally:
+            conn.close()
 
-    # Add dynamic options to the newly created command
-    DynamicOptions(db_path, table_name).add_to_command(dynamic_search_cmd)
+    option_generator.add_to_command(dynamic_search_cmd)
     return dynamic_search_cmd
