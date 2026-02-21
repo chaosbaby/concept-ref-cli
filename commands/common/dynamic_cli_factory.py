@@ -39,8 +39,7 @@ class DynamicOptions:
         self.db_path = db_path
         self.table_name = table_name
         self.numeric_types = ['INT', 'INTEGER', 'REAL', 'FLOAT', 'DOUBLE']
-        # More specific exclusion list per table might be needed
-        self.excluded_fields = ['id', 'file_mtime', 'session_id', 'content'] 
+        self.excluded_fields = [] 
 
     def get_schema(self):
         if not os.path.exists(self.db_path): return []
