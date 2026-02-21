@@ -36,11 +36,19 @@ class ConfigManager:
             json.dump(config, f, indent=2)
 
 class RangeParser:
-    """Parse numeric ranges like '2', '1-', '1-5', '-20'."""
+    """Parse numeric ranges like '2', '1-', '1-5', '-20', '10,20'."""
     @staticmethod
     def to_sql(col_name, range_str):
         if not range_str: return None, []
         range_str = str(range_str).strip()
+        
+        # Support for comma-separated ranges 'm,n'
+        if ',' in range_str:
+            parts = range_str.split(',')
+            start, end = parts[0].strip(), parts[1].strip()
+            if start and end:
+                return f"CAST({col_name} AS INTEGER) BETWEEN ? AND ?", [int(start), int(end)]
+
         if '-' in range_str:
             parts = range_str.split('-')
             start, end = parts[0].strip(), parts[1].strip()
@@ -55,6 +63,46 @@ class RangeParser:
         except ValueError:
             return None, []
 
+class DynamicOptions:
+    """Introspects DB schema and generates Click options dynamically."""
+    
+    def __init__(self, db_path, table_name='entries'):
+        self.db_path = db_path
+        self.table_name = table_name
+        self.numeric_types = ['INT', 'INTEGER', 'REAL', 'FLOAT', 'DOUBLE']
+        self.excluded_fields = ['pk', 'id', 'desc', 'tags', 'val', 'content', 'fts_docid']
+
+    def get_schema(self):
+        if not os.path.exists(self.db_path):
+            return []
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(f"PRAGMA table_info({self.table_name})")
+        schema = cursor.fetchall()
+        conn.close()
+        return schema
+
+    def generate_options(self):
+        options = []
+        schema = self.get_schema()
+        for col in schema:
+            col_name = col[1]
+            col_type = col[2].upper()
+            if col_name in self.excluded_fields:
+                continue
+            
+            if any(t in col_type for t in self.numeric_types):
+                options.append(click.Option([f'--{col_name}'], help=f"Filter by {col_name} (e.g., 1-5, 10,20)."))
+            else: # TEXT or other types
+                # Here you could add shell_complete for low-cardinality fields
+                options.append(click.Option([f'--{col_name}'], help=f"Filter by {col_name} (text)."))
+        return options
+
+    def add_to_command(self, command):
+        for option in self.generate_options():
+            command.params.append(option)
+        return command
+
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -66,15 +114,26 @@ def is_headless():
 def format_output(row, mode, fields=None):
     data = dict(row)
     if fields:
+        # Filter to show only requested fields
         data = {k: v for k, v in data.items() if k in fields}
     
     if mode in ['json', 'stream']:
         click.echo(json.dumps(data, ensure_ascii=False))
     elif mode == 'plain':
-        click.echo(" ".join([str(v) for k, v in data.items() if not k.startswith('_')]))
+        # If specific fields are requested, only print them
+        if fields:
+            click.echo(" | ".join([str(data.get(k, '')) for k in fields]))
+        else:
+            click.echo(" ".join([str(v) for k, v in data.items() if not k.startswith('_')]))
     else: # 'view' or default
         pk = data.get('pk') or list(data.values())[0]
-        desc = data.get('desc') or " | ".join([str(v) for k,v in data.items() if k != 'pk' and not k.startswith('_')])
+        
+        # If fields are specified, build a custom description
+        if fields:
+            desc = " | ".join([f"{k}:{data.get(k, '')}" for k in fields if k != 'pk'])
+        else:
+            desc = data.get('desc') or " | ".join([str(v) for k,v in data.items() if k != 'pk' and not k.startswith('_')])
+        
         click.secho(f"【{pk}】", fg='cyan', nl=False)
         click.echo(f" {desc}")
         if '_joined' in data:
@@ -100,49 +159,62 @@ def cli():
     """{{ description }}"""
     pass
 
-@cli.command()
+@click.command(name="search")
 @click.argument('query', required=False)
 @click.option('--stdin', is_flag=True, help='Read from stdin')
 @click.option('--output', '-o', type=click.Choice(['view', 'json', 'plain', 'stream']), help='Output mode')
-@click.option('--field', '-f', multiple=True, help='Filter specific fields')
-@click.option('--rank', help='Rank filter (e.g. 1000-, 1-500)')
-@click.option('--len', 'length', help='Length filter (e.g. 2, 4-)')
-@click.option('--tag', 'tags', multiple=True, help='Include tags')
-@click.option('--no-tag', 'no_tags', multiple=True, help='Exclude tags')
-@click.option('--limit', type=int)
-def search(query, stdin, output, field, rank, length, tags, no_tags, limit):
-    """Search with standardized input/output and multi-dim filters."""
+@click.option('--field', '-f', multiple=True, help='Select specific fields for output')
+@click.option('--limit', type=int, help='Limit number of results')
+@click.option('--logic', type=click.Choice(['AND', 'OR']), default='AND', help='Logic to combine filters')
+@click.pass_context
+def search_cmd(ctx, query, stdin, output, field, limit, logic, **kwargs):
+    """Search with dynamic, schema-aware filters."""
     cfg = ConfigManager.load()
     output = output or cfg.get('output', 'view')
     limit = limit or cfg.get('limit', 20)
-    rank = rank or cfg.get('default_rank')
-    length = length or cfg.get('default_len')
-    
-    if not tags and cfg.get('default_tag'):
-        tags = [t.strip() for t in cfg.get('default_tag').split(',') if t.strip()]
-    if not no_tags and cfg.get('default_no_tag'):
-        no_tags = [t.strip() for t in cfg.get('default_no_tag').split(',') if t.strip()]
 
     conn = get_db(); cursor = conn.cursor()
     if is_headless() and output == 'view': output = 'stream'
         
     for q in get_input_stream(query, stdin):
         if not q: continue
+        
+        # Base FTS query
         sql = "SELECT * FROM entries WHERE pk MATCH ?"
         params = [f"{q}*"]
         
-        if rank:
-            c, p = RangeParser.to_sql('rank', rank)
-            if c: sql += f" AND {c}"; params.extend(p)
-        if length:
-            c, p = RangeParser.to_sql('length(pk)', length)
-            if c: sql += f" AND {c}"; params.extend(p)
+        # Dynamically build filter conditions
+        filter_clauses = []
+        for key, value in kwargs.items():
+            if value is not None:
+                # Assuming numeric for now based on DynamicOptions logic
+                # A more robust solution would check schema type again here
+                c, p = RangeParser.to_sql(key, value)
+                if c:
+                    filter_clauses.append(c)
+                    params.extend(p)
+
+        if filter_clauses:
+            sql += f" {logic} ".join([''] + filter_clauses)
             
         sql += f" LIMIT {limit}"
-        cursor.execute(sql, params)
-        for row in cursor.fetchall():
-            format_output(row, output, field)
+        
+        try:
+            cursor.execute(sql, params)
+            for row in cursor.fetchall():
+                # Pass selected fields to format_output
+                format_output(row, output, field)
+        except sqlite3.OperationalError as e:
+            click.secho(f"Error executing query: {e}", fg='red')
+            click.secho(f"Query: {sql}", fg='yellow')
+            click.secho(f"Params: {params}", fg='yellow')
+
     conn.close()
+
+# Apply dynamic options
+dynamic_opts = DynamicOptions(DB_PATH)
+dynamic_opts.add_to_command(search_cmd)
+cli.add_command(search_cmd)
 
 @cli.group()
 def config_cmd():

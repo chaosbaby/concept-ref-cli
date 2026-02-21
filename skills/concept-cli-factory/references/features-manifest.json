@@ -78,6 +78,24 @@
     "rank": 40
   },
   {
+    "id": "dynamic-schema-adapter",
+    "rank": 98,
+    "category": "Core",
+    "label": "动态 Schema 适配器",
+    "description": "运行时通过反射数据库 Schema 自动生成过滤参数。",
+    "status": "recommended",
+    "spec_map": "dynamic-schema-adapter",
+    "trigger": {
+      "type": "always"
+    },
+    "cli_integration": {
+      "command": "search",
+      "flags": [
+        "--<field-name>"
+      ]
+    }
+  },
+  {
     "id": "direct-sql",
     "category": "Expert",
     "label": "SQL 直连",
