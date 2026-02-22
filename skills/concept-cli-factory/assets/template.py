@@ -244,6 +244,20 @@ cli.add_command(config_cmd, name='config')
 @click.option('--data', required=True)
 def init(data):
     """Initialize with FTS5 and completion index."""
+    # DEV-NOTE: This is a template. For real data loading:
+    # 1. Define a schema with appropriate types (e.g., INTEGER for freq/rank).
+    # 2. When reading from source files (txt, csv, json), ALWAYS cast string
+    #    values to their target types (e.g., int(val)) before DB insertion.
+    #    This prevents incorrect sorting on text representations of numbers.
+    #
+    #    Example:
+    #    freq_str = parts[1]
+    #    try:
+    #        freq = int(float(freq_str))
+    #    except ValueError:
+    #        freq = 0
+    #    batch.append((term, freq, ...))
+    
     conn = get_db(); cursor = conn.cursor()
     cursor.execute("DROP TABLE IF EXISTS entries")
     cursor.execute("CREATE VIRTUAL TABLE entries USING fts5(pk, desc, tags, val, rank)")

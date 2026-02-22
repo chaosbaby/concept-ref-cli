@@ -283,8 +283,12 @@ def init(sources_dir, clear):
             for line in f:
                 parts = line.strip().split()
                 if len(parts) >= 2:
-                    term, freq = parts[0], parts[1]; tag = parts[2] if len(parts)>2 else ""
-                    batch.append((term, freq, tag)); comp_batch.append((term, int(freq)))
+                    term, freq_str = parts[0], parts[1]; tag = parts[2] if len(parts)>2 else ""
+                    try:
+                        freq = int(float(freq_str))
+                    except ValueError:
+                        freq = 0 # Default for non-numeric freq
+                    batch.append((term, freq, tag)); comp_batch.append((term, freq))
                 if len(batch) >= 5000:
                     cursor.executemany("INSERT INTO source_dict VALUES (?,?,?)", batch)
                     cursor.executemany("INSERT OR IGNORE INTO comp_dict VALUES (?,?)", comp_batch)
@@ -451,6 +455,20 @@ def doctor():
         cursor.execute(f"SELECT count(*) FROM {r[0]}")
         click.echo(f" - {r[0]}: {cursor.fetchone()[0]} entries")
     store.close()
+
+def _load_dynamic_commands():
+    try:
+        if not __package__:
+            sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+        from commands.common.dynamic_cli_factory import create_table_search_command
+        tables_to_expose = ['source_dict', 'source_ids']
+        for table in tables_to_expose:
+            command = create_table_search_command(DB_PATH, table)
+            cli.add_command(command)
+    except (ImportError, ModuleNotFoundError) as e:
+        click.secho(f"Warning: Dynamic commands could not be loaded: {e}", fg='yellow')
+
+_load_dynamic_commands()
 
 if __name__ == '__main__':
     cli()
