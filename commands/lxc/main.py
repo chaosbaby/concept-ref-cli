@@ -429,7 +429,7 @@ def completion():
 def completion_show(shell):
     env = os.environ.copy(); env[f"_LXC_COMPLETE"] = f"{shell}_source"
     import subprocess
-    result = subprocess.run([sys.executable, __file__], env=env, capture_output=True, text=True)
+    result = subprocess.run(["lxc"], env=env, capture_output=True, text=True)
     click.echo(result.stdout if result.stdout else f'# Add to your profile: eval "$(_LXC_COMPLETE={shell}_source lxc)"')
 
 @completion.command(name='install')

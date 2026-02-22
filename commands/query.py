@@ -7,6 +7,7 @@ import re
 import json
 from dataclasses import dataclass
 from typing import Dict, Any, List, Tuple, Optional
+from click.shell_completion import CompletionItem
 
 # --- Constants & Configuration ---
 
@@ -202,19 +203,19 @@ def query_filters_completer(ctx, param, incomplete):
     
     # Context: Table name
     if num_parts == 1:
-        return [f"{t}:" for t in schema_manager.get_tables() if t.startswith(current_table)]
+        return [CompletionItem(f"{t}:") for t in schema_manager.get_tables() if t.startswith(current_table)]
     
     # Context: Column name
     elif num_parts == 2:
         if current_table in schema_manager.schema:
-            return [f"{current_table}:{c}:" for c in schema_manager.get_columns(current_table) if c.startswith(current_column)]
+            return [CompletionItem(f"{current_table}:{c}:") for c in schema_manager.get_columns(current_table) if c.startswith(current_column)]
     
     # Context: Operator name
     elif num_parts == 3:
         if current_table in schema_manager.schema and current_column in schema_manager.schema[current_table]:
             simple_type = schema_manager.get_simple_type(current_table, current_column)
             if simple_type in FIELD_TYPES:
-                return [f"{current_table}:{current_column}:{op}:" for op in FIELD_TYPES[simple_type]['operators'] if op.startswith(current_op)]
+                return [CompletionItem(f"{current_table}:{current_column}:{op}:") for op in FIELD_TYPES[simple_type]['operators'] if op.startswith(current_op)]
     
     return []
 
