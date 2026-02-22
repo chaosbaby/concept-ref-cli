@@ -470,5 +470,11 @@ def _load_dynamic_commands():
 
 _load_dynamic_commands()
 
+try:
+    from commands.query import query_cmd
+    cli.add_command(query_cmd)
+except ImportError as e:
+    click.secho(f"Warning: Could not load 'query' command: {e}", fg='yellow')
+
 if __name__ == '__main__':
     cli()

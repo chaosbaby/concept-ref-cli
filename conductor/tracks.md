@@ -7,3 +7,4 @@
 - [xh-enhancement](./tracks/xh-enhancement/index.md): Master-level enhancement for xh command.
 - [feat-spec-layering](./tracks/feat-spec-layering/index.md): Layered specification system for precision guidance.
 - [lexicon-refactor](./tracks/lexicon-refactor/index.md): Standardization and migration of lexicon data as Unix-style components.
+- [feat-universal-query](./tracks/feat-universal-query/plan.md): Implement a schema-aware, universal query engine.
