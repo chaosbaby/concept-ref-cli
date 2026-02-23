@@ -317,17 +317,28 @@ def _load_dynamic_commands():
     except (ImportError, ModuleNotFoundError) as e:
         click.secho(f"Warning: Dynamic commands could not be loaded: {e}", fg='yellow')
 
-_load_dynamic_commands()
+# _load_dynamic_commands()
+
+# try:
+#     from commands.query import create_query_cmd, create_commands_from_config
+#     lexicon_cmd = create_query_cmd(
+#         db_path=DB_PATH,
+#         table_prefix="",
+#         cmd_name="query",  # 可选，默认从文件名生成
+#         help_text="ai chat dialogue query command"
+#     )
+#     cli.add_command(lexicon_cmd)
 
 try:
-    from commands.query import create_query_cmd, create_commands_from_config
-    lexicon_cmd = create_query_cmd(
+    from commands.query import create_table_commands
+    lexicon_cmds = create_table_commands(
         db_path=DB_PATH,
         table_prefix="",
-        cmd_name="query",  # 可选，默认从文件名生成
-        help_text="ai chat dialogue query command"
+        tables = ['sessions','messages'],
+        help_text="查询词典数据库"
     )
-    cli.add_command(lexicon_cmd)
+    for cmd in lexicon_cmds:
+        cli.add_command(cmd)
 
 except ImportError as e:
     click.secho(f"Warning: Could not load 'query' command: {e}", fg='yellow')

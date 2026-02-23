@@ -484,7 +484,6 @@ def _load_dynamic_commands():
 #     click.secho(f"Warning: Could not load 'query' command: {e}", fg='yellow')
 
 try:
-
     from commands.query import create_table_commands
     lexicon_cmds = create_table_commands(
         db_path="~/.lexicon.db", 
