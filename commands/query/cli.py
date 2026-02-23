@@ -15,7 +15,8 @@ from .core.builder import QueryConfig, QueryBuilder
 def create_table_commands(db_path: str, 
                          tables: List[str],
                          table_prefix: str = "", 
-                         help_text: str = None) -> List[click.Command]:
+                         help_text: str = None,
+                         cache_values: bool = False) -> List[click.Command]:
     """
     为每个表创建一个独立的查询命令。
     
@@ -24,14 +25,15 @@ def create_table_commands(db_path: str,
         tables: 要创建命令的表名列表
         table_prefix: 表名前缀
         help_text: 帮助文本（会被每个命令继承）
+        cache_values: 是否缓存字段值以提高补全性能
     
     返回:
         命令对象列表
     """
     full_db_path = os.path.expanduser(db_path)
     
-    # 创建 SchemaManager 实例
-    schema_manager = SchemaManager(full_db_path, table_prefix)
+    # 创建 SchemaManager 实例，传入 cache_values 参数
+    schema_manager = SchemaManager(full_db_path, table_prefix, cache_values=cache_values)
     
     # 验证表是否存在
     available_tables = schema_manager.get_tables()
@@ -52,7 +54,6 @@ def create_table_commands(db_path: str,
         commands.append(cmd)
     
     return commands
-
 
 def create_query_cmd(db_path: str, 
                      table_prefix: str = "", 

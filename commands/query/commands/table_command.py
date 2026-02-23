@@ -15,7 +15,7 @@ from ..core.filters import FilterParser, Filter
 from ..core.builder import QueryBuilder, QueryConfig
 from ..core.formatter import OutputFormatter
 from ..utils.constants import FIELD_TYPES
-
+LIMIT = 200  # 默认查询限制数量
 
 def create_table_command(db_path: str, 
                         table_name: str,
@@ -27,59 +27,53 @@ def create_table_command(db_path: str,
     # 生成帮助文本
     if help_text is None:
         help_text = f"""
-    查询 {table_name} 表。
+查询 {table_name} 表。
 
-    过滤器格式: column:op:value 或 column:not:op:value
+过滤器格式: column:op:value 或 column:not:op:value
 
-    示例:
-    {table_name} term:contains:爱情
-    {table_name} term:not:contains:爱情  # 不包含"爱情"
-    {table_name} freq:gt:100 --limit 5 --sort-by freq --sort-dir desc
-    {table_name} freq:not:gt:100  # 不大于100
+示例:
+  {table_name} term:contains:爱情
+  {table_name} term:not:contains:爱情  # 不包含"爱情"
+  {table_name} freq:gt:100 --limit 5 --sort-by freq --sort-dir desc
 
-    特殊功能 - 从标准输入读取过滤器值:
-    使用 '-' 作为过滤器值的一部分，可以从标准输入读取实际值。
-    每行输入会生成一个独立的查询。
+特殊功能 - 从标准输入读取过滤器值:
+  使用 '-' 作为过滤器值的一部分，可以从标准输入读取实际值。
+  每行输入会生成一个独立的查询。
 
-    示例:
-        # 为每个词条执行查询
-        echo -e "爱情\n友谊\n人生" | {table_name} term:is:-
+操作符说明:
+  所有操作符都可以在前面加上 "not:" 来取反，例如：not:contains, not:gt, not:in
 
-        # 组合多个过滤器
-        echo -e "爱情,100\n友谊,50" | {table_name} term:is:- freq:is:-
+  字符串: 
+    is, not:is
+    contains, not:contains
+    startswith, not:startswith
+    endswith, not:endswith
+    regex, not:regex
+    length_is, not:length_is
+    length_gt, not:length_gt
+    length_lt, not:length_lt
+    in, not:in
 
-    操作符说明:
-    所有操作符都可以在前面加上 "not:" 来取反，例如：not:contains, not:gt, not:in
+  数字: 
+    is, not:is
+    gt, not:gt
+    gte, not:gte
+    lt, not:lt
+    lte, not:lte
+    between, not:between
+    in, not:in
 
-    字符串: 
-        is, not:is
-        contains, not:contains
-        startswith, not:startswith
-        endswith, not:endswith
-        regex, not:regex
-        length_is, not:length_is
-        length_gt, not:length_gt
-        length_lt, not:length_lt
-        in, not:in
+  日期: 
+    after, not:after
+    before, not:before
+    between, not:between
+    last, next, on, not:on
 
-    数字: 
-        is, not:is
-        gt, not:gt
-        gte, not:gte
-        lt, not:lt
-        lte, not:lte
-        between, not:between
-        in, not:in
+  布尔: 
+    is, is_not
 
-    日期: 
-        after, not:after
-        before, not:before
-        between, not:between
-        last, next, on, not:on
-
-    布尔: 
-        is, is_not
-    """
+提示: 按 TAB 键可以补全列名、操作符和字段值
+"""
     
     # 创建补全函数
     def sort_by_completer(ctx, param, incomplete):
@@ -89,52 +83,103 @@ def create_table_command(db_path: str,
             for col in schema_manager.get_columns(table_name)
             if col.startswith(incomplete)
         ]
-
+    
     def filter_completer(ctx, param, incomplete):
-        """补全过滤器"""
-        parts = incomplete.split(':', 2)
+        """智能补全过滤器 - 支持列名、操作符和字段值"""
+        parts = incomplete.split(':')
         num_parts = len(parts)
         
-        current_column = parts[0] if num_parts > 0 else ""
-        current_op = parts[1] if num_parts > 1 else ""
-        
+        # 情况1: 补全列名 (column:)
         if num_parts == 1:
-            # 补全列名
+            current_column = parts[0]
             return [
                 CompletionItem(f"{c}:") 
                 for c in schema_manager.get_columns(table_name) 
                 if c.startswith(current_column)
             ]
         
+        # 情况2: 补全操作符 (column:op: 或 column:not:)
         elif num_parts == 2:
-            # 补全操作符
-            if schema_manager.column_exists(table_name, current_column):
-                simple_type = schema_manager.get_simple_type(table_name, current_column)
-                if simple_type in FIELD_TYPES:
-                    # 获取所有可用的操作符
-                    operators = FIELD_TYPES[simple_type]['operators']
-                    
-                    # 先显示普通操作符，再显示 NOT 版本
-                    suggestions = []
-                    for op in operators:
-                        if op.startswith('not:'):
-                            # NOT 版本的操作符，在输入 'not' 时显示
-                            if current_op.lower() == 'not' or op.startswith(current_op):
-                                suggestions.append(CompletionItem(f"{current_column}:{op}:"))
-                        else:
-                            # 普通操作符
-                            if op.startswith(current_op):
-                                suggestions.append(CompletionItem(f"{current_column}:{op}:"))
-                    
-                    # 如果只输入了 'n'，也要显示 not: 开头的操作符
-                    if current_op.lower() == 'n':
-                        for op in operators:
-                            if op.startswith('not:'):
-                                suggestions.append(CompletionItem(f"{current_column}:{op}:"))
-                    
-                    return suggestions
+            current_column = parts[0]
+            current_op = parts[1]
+            
+            if not schema_manager.column_exists(table_name, current_column):
+                return []
+            
+            simple_type = schema_manager.get_simple_type(table_name, current_column)
+            suggestions = []
+            
+            # 如果当前输入是 'n' 或 'not'，显示 not: 前缀
+            if current_op.lower() in ['', 'n', 'no', 'not']:
+                suggestions.append(CompletionItem(f"{current_column}:not:"))
+            
+            # 显示普通操作符
+            for op in FIELD_TYPES[simple_type]['operators']:
+                if not op.startswith('not:'):  # 不显示 not: 版本，因为会用 not: 前缀
+                    if op.startswith(current_op):
+                        suggestions.append(CompletionItem(f"{current_column}:{op}:"))
+            
+            return suggestions
         
-        return [] 
+        # 情况3: 已经输入了 column:not:，补全操作符 (column:not:op:)
+        elif num_parts == 3 and parts[1] == 'not':
+            current_column = parts[0]
+            current_op = parts[2]  # 第三部分是操作符
+            
+            if not schema_manager.column_exists(table_name, current_column):
+                return []
+            
+            simple_type = schema_manager.get_simple_type(table_name, current_column)
+            suggestions = []
+            
+            # 显示所有可用的操作符（不带 not: 前缀）
+            for op in FIELD_TYPES[simple_type]['operators']:
+                # 去掉 not: 前缀显示
+                display_op = op.replace('not:', '')
+                if display_op not in ['is_not'] and display_op.startswith(current_op):
+                    suggestions.append(CompletionItem(f"{current_column}:not:{display_op}:"))
+            
+            return suggestions
+        
+        # 情况4: 补全字段值 (column:op:value 或 column:not:op:value)
+        elif num_parts >= 3:
+            current_column = parts[0]
+            
+            # 确定操作符和当前输入的值
+            if parts[1] == 'not' and num_parts >= 4:
+                # 格式: column:not:op:value
+                current_op = f"not:{parts[2]}"
+                current_value = parts[3] if len(parts) > 3 else ""
+            else:
+                # 格式: column:op:value
+                current_op = parts[1]
+                current_value = parts[2] if len(parts) > 2 else ""
+            
+            # 只对特定操作符进行值补全
+            value_completion_ops = ['is', 'not:is', 'contains', 'not:contains', 
+                                   'startswith', 'not:startswith', 'endswith', 'not:endswith']
+            
+            actual_op = current_op.replace('not:', '')
+            if actual_op in ['is', 'contains', 'startswith', 'endswith']:
+                # 从数据库获取该列的值进行补全
+                values = schema_manager.get_column_values(
+                    table=table_name,
+                    column=current_column,
+                    pattern=current_value,
+                    limit=LIMIT
+                )
+                
+                # 根据原始格式构建补全项
+                if parts[1] == 'not' and num_parts >= 4:
+                    # column:not:op:value 格式
+                    base = f"{current_column}:not:{parts[2]}:"
+                else:
+                    # column:op:value 格式
+                    base = f"{current_column}:{parts[1]}:"
+                
+                return [CompletionItem(f"{base}{value}") for value in values]
+        
+        return []
     
     @click.command(name=table_name, help=help_text, epilog="提示: 在过滤器值中使用 '-' 可以从标准输入读取实际值")
     @click.argument('filters', nargs=-1, required=False, shell_complete=filter_completer)
@@ -155,9 +200,18 @@ def create_table_command(db_path: str,
     @click.option('--delimiter', '-d', default=None, help='当一行有多个值时使用的分隔符（默认：逗号）')
     @click.option('--quiet', '-q', is_flag=True, help='安静模式，不显示额外信息')
     @click.option('--separator', '-s', default=None, help='多行输出时的分隔符（默认：空行）')
+    @click.option('--cache-values', is_flag=True, help='缓存字段值以提高补全性能')
     def cmd(filters, output, field, limit, offset, logic, sort_by, sort_dir, 
-            where, verbose, list_fields, count, delimiter, quiet, separator):
+            where, verbose, list_fields, count, delimiter, quiet, separator, cache_values):
         """执行表查询"""
+        
+        # 如果启用了值缓存，重新加载缓存
+        if cache_values and not quiet:
+            click.secho("正在加载字段值缓存...", fg='blue', dim=True)
+            schema_manager.cache_values = True
+            schema_manager._load_value_cache()
+            if not quiet:
+                click.secho("字段值缓存加载完成", fg='green', dim=True)
         
         # 检查数据库是否存在
         if not os.path.exists(db_path):
@@ -174,7 +228,16 @@ def create_table_command(db_path: str,
             click.secho(f"\n表 {table_name} 的字段:", fg='green', bold=True)
             for col in sorted(columns):
                 col_type = schema_manager.get_simple_type(table_name, col)
-                click.echo(f"  {col} ({col_type})")
+                # 显示该字段的一些示例值（如果有缓存）
+                if schema_manager.cache_values:
+                    cache_key = f"{table_name}.{col}"
+                    sample_values = list(schema_manager.value_cache.get(cache_key, set()))[:3]
+                    if sample_values:
+                        click.echo(f"  {col} ({col_type}) 例如: {', '.join(sample_values)}")
+                    else:
+                        click.echo(f"  {col} ({col_type})")
+                else:
+                    click.echo(f"  {col} ({col_type})")
             return
         
         # 检查是否有过滤器
@@ -237,12 +300,25 @@ def create_table_command(db_path: str,
         if not stdin_positions:
             parsed_filters = []
             for _, filter_str, column, op, value in filter_templates:
-                # 构建完整的过滤器字符串（用于解析）
-                full_filter = f"{table_name}:{column}:{op}:{value}"
+                # 对于带 not: 前缀的操作符，需要特殊处理
+                if op.startswith('not:'):
+                    # 正确的格式应该是 table:column:not:op:value
+                    # 例如: messages:role:not:contains:user
+                    actual_op = op[4:]  # 去掉 'not:' 前缀，得到 'contains'
+                    
+                    # 构建完整的过滤器字符串
+                    # 注意：这里要用冒号连接所有部分，确保操作符部分是 'not:contains'
+                    full_filter = f"{table_name}:{column}:not:{actual_op}:{value}"
+                else:
+                    # 普通格式: table:column:op:value
+                    full_filter = f"{table_name}:{column}:{op}:{value}"
+                
                 filt = FilterParser.parse(full_filter, schema_manager)
                 if filt:
                     parsed_filters.append(filt)
-            
+                else:
+                    click.secho(f"[DEBUG] 过滤器解析失败: {full_filter}", fg='red')
+                
             if not parsed_filters and not where:
                 return
             

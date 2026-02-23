@@ -24,7 +24,6 @@ class QueryConfig:
 
 class QueryBuilder:
     """Builds type-safe SQL queries from validated filters."""
-    
     @staticmethod
     def _get_op_sql(filt: Filter) -> Tuple[str, List[Any]]:
         col, op, val = filt.column, filt.op, filt.value
@@ -128,33 +127,49 @@ class QueryBuilder:
                 except ValueError:
                     raise ValueError(f"Invalid numeric values for 'between' operator: {v_start}, {v_end}")
 
-        # 其他类型的处理...
+        # 字符串类型的处理 - 重点修复这里
         if filt.column_type == 'string':
-            if actual_op == 'contains': 
-                sql = f"{col} {'NOT' if is_not else ''} LIKE ?"
-                return (sql.strip(), [f"%{val}%"])
-            if actual_op == 'startswith': 
-                sql = f"{col} {'NOT' if is_not else ''} LIKE ?"
-                return (sql.strip(), [f"{val}%"])
-            if actual_op == 'endswith': 
-                sql = f"{col} {'NOT' if is_not else ''} LIKE ?"
-                return (sql.strip(), [f"%{val}"])
-            if actual_op == 'regex': 
-                # SQLite 没有直接的 NOT REGEXP，需要组合
+            if actual_op == 'contains':
                 if is_not:
+                    # NOT LIKE 使用 NOT LIKE
+                    return (f"{col} NOT LIKE ?", [f"%{val}%"])
+                else:
+                    return (f"{col} LIKE ?", [f"%{val}%"])
+            
+            if actual_op == 'startswith':
+                if is_not:
+                    return (f"{col} NOT LIKE ?", [f"{val}%"])
+                else:
+                    return (f"{col} LIKE ?", [f"{val}%"])
+            
+            if actual_op == 'endswith':
+                if is_not:
+                    return (f"{col} NOT LIKE ?", [f"%{val}"])
+                else:
+                    return (f"{col} LIKE ?", [f"%{val}"])
+            
+            if actual_op == 'regex':
+                if is_not:
+                    # SQLite 没有直接的 NOT REGEXP，需要组合
                     return (f"NOT ({col} REGEXP ?)", [val])
-                return (f"{col} REGEXP ?", [val])
-            if actual_op == 'length_is': 
+                else:
+                    return (f"{col} REGEXP ?", [val])
+            
+            if actual_op == 'length_is':
                 op_symbol = '!=' if is_not else '='
                 return (f"LENGTH({col}) {op_symbol} ?", [int(val)])
-            if actual_op == 'length_gt': 
+            
+            if actual_op == 'length_gt':
                 if is_not:
                     return (f"LENGTH({col}) <= ?", [int(val)])
-                return (f"LENGTH({col}) > ?", [int(val)])
-            if actual_op == 'length_lt': 
+                else:
+                    return (f"LENGTH({col}) > ?", [int(val)])
+            
+            if actual_op == 'length_lt':
                 if is_not:
                     return (f"LENGTH({col}) >= ?", [int(val)])
-                return (f"LENGTH({col}) < ?", [int(val)])
+                else:
+                    return (f"LENGTH({col}) < ?", [int(val)])
 
         if filt.column_type == 'boolean':
             bool_val = 1 if str(val).lower() in ['true', '1', 'yes', 'y', 't'] else 0
@@ -164,7 +179,8 @@ class QueryBuilder:
                 return (f"{col} = ?", [bool_val])
             if actual_op == 'is_not':  # 已经包含 NOT
                 return (f"{col} != ?", [bool_val])
-        
+    
+            
         if filt.column_type == 'datetime':
             if actual_op == 'after':
                 op_symbol = '<=' if is_not else '>'

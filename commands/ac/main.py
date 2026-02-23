@@ -335,7 +335,8 @@ try:
         db_path=DB_PATH,
         table_prefix="",
         tables = ['sessions','messages'],
-        help_text="查询词典数据库"
+        help_text="查询词典数据库",
+        cache_values= True  # 启用值缓存以加速补全
     )
     for cmd in lexicon_cmds:
         cli.add_command(cmd)

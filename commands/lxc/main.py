@@ -489,7 +489,8 @@ try:
         db_path="~/.lexicon.db", 
         table_prefix="source_",
         tables = ['dict','ids'],
-        help_text="查询词典数据库"
+        help_text="查询词典数据库",
+        cache_values=True  # 启用字段值缓存以加速 tag 的自动补全
     )
     for cmd in lexicon_cmds:
         cli.add_command(cmd)
