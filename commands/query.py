@@ -10,10 +10,12 @@ import click
 import sqlite3
 import os
 import json
-from dataclasses import dataclass
-from typing import Dict, Any, List, Tuple, Optional, Callable
+import sys
+from dataclasses import dataclass, field
+from typing import Dict, Any, List, Tuple, Optional, Callable, Set
 from pathlib import Path
 from click.shell_completion import CompletionItem
+import re
 
 # --- Constants ---
 
@@ -47,6 +49,18 @@ class Filter:
     value: str
     raw: str
     column_type: str
+
+@dataclass
+class QueryConfig:
+    """Configuration for a query."""
+    filters: List[Filter] = field(default_factory=list)
+    limit: int = 10
+    offset: int = 0
+    fields: List[str] = field(default_factory=list)
+    sort_by: Optional[str] = None
+    sort_dir: str = 'desc'
+    logic: str = 'AND'
+    where_raw: Optional[str] = None
 
 # --- Schema Management ---
 
@@ -158,6 +172,18 @@ class FilterParser:
             raw=filter_str, 
             column_type=simple_type
         )
+    
+    @staticmethod
+    def parse_from_stdin(stdin_data: str, schema_manager: SchemaManager) -> List[Filter]:
+        """Parse filters from stdin (one filter per line)."""
+        filters = []
+        for line in stdin_data.strip().split('\n'):
+            line = line.strip()
+            if line and not line.startswith('#'):  # Skip comments
+                filt = FilterParser.parse(line, schema_manager)
+                if filt:
+                    filters.append(filt)
+        return filters
 
 # --- Query Building ---
 
@@ -231,33 +257,167 @@ class QueryBuilder:
         raise NotImplementedError(f"Operator '{op}' not implemented for type '{filt.column_type}'")
 
     @staticmethod
-    def build_sql(filters: List[Filter], schema_manager: SchemaManager) -> Tuple[Optional[str], List[Any], Optional[str]]:
-        if not filters:
+    def build_sql(config: QueryConfig, schema_manager: SchemaManager) -> Tuple[Optional[str], List[Any], Optional[str]]:
+        filters = config.filters
+        
+        if not filters and not config.where_raw:
             return None, [], None
 
-        target_table = filters[0].table
-        for f in filters:
-            if f.table != target_table:
-                return None, [], None
+        # Determine target table
+        target_table = None
+        if filters:
+            target_table = filters[0].table
+            for f in filters:
+                if f.table != target_table:
+                    return None, [], None
+        elif config.where_raw:
+            # Try to extract table from WHERE clause (simplified)
+            # In a real implementation, you might need to specify table explicitly
+            tables = schema_manager.get_tables()
+            if tables:
+                target_table = tables[0]  # Default to first table
+
+        if not target_table:
+            return None, [], None
 
         db_table_name = schema_manager.get_physical_table_name(target_table)
 
+        # Build WHERE clause
         where_clauses = []
         params = []
 
-        for f in filters:
-            try:
-                clause, p = QueryBuilder._get_op_sql(f)
-                where_clauses.append(clause)
-                params.extend(p)
-            except Exception:
-                return None, [], None
+        # Add filters
+        if filters:
+            for f in filters:
+                try:
+                    clause, p = QueryBuilder._get_op_sql(f)
+                    where_clauses.append(clause)
+                    params.extend(p)
+                except Exception:
+                    return None, [], None
 
-        if not where_clauses:
-            return None, [], None
+        # Add raw WHERE clause
+        if config.where_raw:
+            where_clauses.append(f"({config.where_raw})")
 
-        sql = f"SELECT * FROM {db_table_name} WHERE {' AND '.join(where_clauses)}"
+        # Build SELECT clause
+        if config.fields:
+            # Validate fields
+            valid_fields = []
+            for field in config.fields:
+                if field == '*' or schema_manager.column_exists(target_table, field):
+                    valid_fields.append(field)
+                else:
+                    raise ValueError(f"Invalid field: {field}")
+            select_clause = ", ".join(valid_fields)
+        else:
+            select_clause = "*"
+
+        # Build SQL
+        sql = f"SELECT {select_clause} FROM {db_table_name}"
+        
+        if where_clauses:
+            logic = f" {config.logic} ".join(where_clauses)
+            sql += f" WHERE {logic}"
+        
+        # Add ORDER BY
+        if config.sort_by:
+            if schema_manager.column_exists(target_table, config.sort_by):
+                sql += f" ORDER BY {config.sort_by} {config.sort_dir.upper()}"
+        
+        # Add LIMIT and OFFSET
+        sql += f" LIMIT ?"
+        params.append(config.limit)
+        
+        if config.offset > 0:
+            sql += f" OFFSET ?"
+            params.append(config.offset)
+
         return sql, params, db_table_name
+
+# --- Output Formatting ---
+
+class OutputFormatter:
+    """Handles different output formats."""
+    
+    @staticmethod
+    def format_results(results: List[sqlite3.Row], 
+                      output_mode: str,
+                      fields: List[str] = None) -> str:
+        """Format results according to output mode."""
+        if not results:
+            return ""
+        
+        if output_mode == 'json':
+            # Single JSON array
+            return json.dumps([dict(row) for row in results], 
+                            ensure_ascii=False, indent=2)
+        
+        elif output_mode == 'ndjson':
+            # Newline-delimited JSON
+            lines = []
+            for row in results:
+                lines.append(json.dumps(dict(row), ensure_ascii=False))
+            return '\n'.join(lines)
+        
+        elif output_mode == 'plain':
+            # Plain text (one field per line)
+            if fields:
+                # Show only specified fields
+                lines = []
+                for row in results:
+                    for field in fields:
+                        if field in row.keys():
+                            lines.append(str(row[field]))
+                return '\n'.join(lines)
+            else:
+                # Show all fields
+                lines = []
+                for row in results:
+                    lines.append(' '.join(str(v) for v in row))
+                return '\n'.join(lines)
+        
+        elif output_mode == 'show':
+            # Pretty table format
+            if not results:
+                return ""
+            
+            headers = results[0].keys()
+            
+            # If fields specified, filter headers
+            if fields:
+                headers = [h for h in headers if h in fields]
+            
+            # Calculate column widths
+            col_widths = {h: len(h) for h in headers}
+            rows_data = []
+            
+            for row in results:
+                row_dict = dict(row)
+                rows_data.append(row_dict)
+                for h in headers:
+                    val = str(row_dict.get(h, ''))
+                    col_widths[h] = max(col_widths[h], len(val))
+            
+            # Build table
+            lines = []
+            
+            # Header
+            header_line = ' | '.join(h.ljust(col_widths[h]) for h in headers)
+            lines.append(header_line)
+            lines.append('-' * len(header_line))
+            
+            # Rows
+            for row_dict in rows_data:
+                row_line = ' | '.join(
+                    str(row_dict.get(h, '')).ljust(col_widths[h]) 
+                    for h in headers
+                )
+                lines.append(row_line)
+            
+            return '\n'.join(lines)
+        
+        return ""
 
 # --- 命令工厂函数 ---
 
@@ -280,67 +440,106 @@ def create_query_cmd(db_path: str,
     
     # 生成命令名称
     if cmd_name is None:
-        # 从数据库文件名生成命令名
         base_name = os.path.basename(db_path)
         cmd_name = os.path.splitext(base_name)[0].replace('-', '_').lower()
     
     # 生成帮助文本
     if help_text is None:
-        help_text = f"查询 {os.path.basename(db_path)} 数据库。\n\n格式: table:column:op:value"
+        help_text = f"""
+查询 {os.path.basename(db_path)} 数据库。
+
+过滤器格式: table:column:op:value
+
+示例:
+  {cmd_name} users:age:gt:25
+  {cmd_name} users:name:contains:john --limit 5 --sort-by age --sort-dir desc
+
+操作符说明:
+  字符串: is, contains, startswith, endswith, regex, length_is, length_gt, length_lt, in
+  数字: is, gt, gte, lt, lte, between, in
+  日期: after, before, between, last, next, on
+  布尔: is, is_not
+
+选项:
+  可以从 stdin 读取过滤器列表（每行一个）
+  支持多种输出格式：表格、JSON、NDJSON、纯文本
+  可以指定返回字段和排序方式
+"""
     
     # 创建 SchemaManager 实例（用于补全）
     schema_manager = SchemaManager(db_path, table_prefix)
     
-    # 创建补全函数
-    def create_completer(sm: SchemaManager):
-        def completer(ctx, param, incomplete):
-            parts = incomplete.split(':', 3)
-            num_parts = len(parts)
-            
-            current_table = parts[0] if num_parts > 0 else ""
-            current_column = parts[1] if num_parts > 1 else ""
-            current_op = parts[2] if num_parts > 2 else ""
-            
-            if num_parts == 1:
-                # 补全表名
-                return [
-                    CompletionItem(f"{t}:") 
-                    for t in sm.get_tables() 
-                    if t.startswith(current_table)
-                ]
-            
-            elif num_parts == 2:
-                # 补全列名
-                if sm.table_exists(current_table):
-                    return [
-                        CompletionItem(f"{current_table}:{c}:") 
-                        for c in sm.get_columns(current_table) 
-                        if c.startswith(current_column)
-                    ]
-            
-            elif num_parts == 3:
-                # 补全操作符
-                if sm.table_exists(current_table) and sm.column_exists(current_table, current_column):
-                    simple_type = sm.get_simple_type(current_table, current_column)
-                    if simple_type in FIELD_TYPES:
-                        return [
-                            CompletionItem(f"{current_table}:{current_column}:{op}:") 
-                            for op in FIELD_TYPES[simple_type]['operators'] 
-                            if op.startswith(current_op)
-                        ]
-            
-            return []
-        return completer
+    # 创建排序字段补全函数
+    def sort_by_completer(ctx, param, incomplete):
+        if schema_manager.get_tables():
+            # 默认使用第一个表的列
+            first_table = schema_manager.get_tables()[0]
+            return [
+                CompletionItem(col) 
+                for col in schema_manager.get_columns(first_table)
+                if col.startswith(incomplete)
+            ]
+        return []
     
-    @click.command(name=cmd_name, help=help_text)
-    @click.argument('filters', nargs=-1, required=True, 
-                   shell_complete=create_completer(schema_manager))
-    @click.option('--limit', '-l', default=10, help="返回结果数量限制")
-    @click.option('--output', '-o', type=click.Choice(['json', 'table', 'csv']), 
-                 default='json', help="输出格式")
-    @click.option('--verbose', '-v', is_flag=True, help="显示SQL语句")
-    @click.option('--list-tables', '-t', is_flag=True, help="列出所有表")
-    def cmd(filters, limit, output, verbose, list_tables):
+    # 创建过滤器补全函数
+    def filter_completer(ctx, param, incomplete):
+        parts = incomplete.split(':', 3)
+        num_parts = len(parts)
+        
+        current_table = parts[0] if num_parts > 0 else ""
+        current_column = parts[1] if num_parts > 1 else ""
+        current_op = parts[2] if num_parts > 2 else ""
+        
+        if num_parts == 1:
+            # 补全表名
+            return [
+                CompletionItem(f"{t}:") 
+                for t in schema_manager.get_tables() 
+                if t.startswith(current_table)
+            ]
+        
+        elif num_parts == 2:
+            # 补全列名
+            if schema_manager.table_exists(current_table):
+                return [
+                    CompletionItem(f"{current_table}:{c}:") 
+                    for c in schema_manager.get_columns(current_table) 
+                    if c.startswith(current_column)
+                ]
+        
+        elif num_parts == 3:
+            # 补全操作符
+            if (schema_manager.table_exists(current_table) and 
+                schema_manager.column_exists(current_table, current_column)):
+                simple_type = schema_manager.get_simple_type(current_table, current_column)
+                if simple_type in FIELD_TYPES:
+                    return [
+                        CompletionItem(f"{current_table}:{current_column}:{op}:") 
+                        for op in FIELD_TYPES[simple_type]['operators'] 
+                        if op.startswith(current_op)
+                    ]
+        
+        return []
+    
+    @click.command(name=cmd_name, help=help_text, epilog="提示: 使用 --stdin 可以从文件或管道读取多个过滤器")
+    @click.argument('filters', nargs=-1, required=False, shell_complete=filter_completer)
+    @click.option('--stdin', is_flag=True, help='从标准输入读取查询过滤器（每行一个）')
+    @click.option('--output', '-o', type=click.Choice(['show', 'plain', 'json', 'ndjson']), 
+                 default='show', help='输出模式：表格/纯文本/JSON/NDJSON')
+    @click.option('--field', '-f', multiple=True, help='选择要输出的字段（可多次使用）')
+    @click.option('--limit', type=int, default=10, help='最大返回结果数')
+    @click.option('--offset', type=int, default=0, help='结果偏移量（用于分页）')
+    @click.option('--logic', type=click.Choice(['AND', 'OR']), default='AND', 
+                 help='组合过滤器的逻辑（AND/OR）')
+    @click.option('--sort-by', help='排序字段', shell_complete=sort_by_completer)
+    @click.option('--sort-dir', type=click.Choice(['asc', 'desc']), default='desc', 
+                 help='排序方向')
+    @click.option('--where', help='原始SQL WHERE子句（谨慎使用）')
+    @click.option('--verbose', '-v', is_flag=True, help='显示SQL语句')
+    @click.option('--list-tables', '-t', is_flag=True, help='列出所有表及其结构')
+    @click.option('--count', is_flag=True, help='只返回结果数量')
+    def cmd(filters, stdin, output, field, limit, offset, logic, sort_by, sort_dir, 
+            where, verbose, list_tables, count):
         """执行查询命令"""
         
         # 检查数据库是否存在
@@ -372,33 +571,54 @@ def create_query_cmd(db_path: str,
         
         # 解析过滤器
         parsed_filters = []
-        for filter_str in filters:
-            filt = FilterParser.parse(filter_str, sm)
-            if filt:
-                parsed_filters.append(filt)
-            else:
-                click.secho(f"无效的过滤器: {filter_str}", fg='red')
-                # 显示有效表名
-                if ':' in filter_str:
-                    table = filter_str.split(':', 1)[0]
-                    if table and not sm.table_exists(table):
-                        click.secho(f"  表 '{table}' 不存在。有效表: {', '.join(sm.get_tables())}", fg='yellow')
-                return
         
-        if not parsed_filters:
-            click.secho("没有有效的过滤器。", fg='yellow')
+        # 从命令行参数解析
+        if filters:
+            for filter_str in filters:
+                filt = FilterParser.parse(filter_str, sm)
+                if filt:
+                    parsed_filters.append(filt)
+                else:
+                    click.secho(f"无效的过滤器: {filter_str}", fg='red')
+                    # 显示有效表名
+                    if ':' in filter_str:
+                        table = filter_str.split(':', 1)[0]
+                        if table and not sm.table_exists(table):
+                            click.secho(f"  表 '{table}' 不存在。有效表: {', '.join(sm.get_tables())}", fg='yellow')
+                    return
+        
+        # 从stdin解析
+        if stdin:
+            if not sys.stdin.isatty():
+                stdin_data = sys.stdin.read()
+                stdin_filters = FilterParser.parse_from_stdin(stdin_data, sm)
+                parsed_filters.extend(stdin_filters)
+                click.secho(f"从 stdin 读取了 {len(stdin_filters)} 个过滤器", fg='blue', dim=True)
+            else:
+                click.secho("警告: --stdin 被指定但没有数据从管道传入", fg='yellow')
+        
+        if not parsed_filters and not where:
+            click.secho("错误: 需要提供过滤器或 --where 参数", fg='red')
             return
         
+        # 创建查询配置
+        config = QueryConfig(
+            filters=parsed_filters,
+            limit=limit,
+            offset=offset,
+            fields=list(field),
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            logic=logic,
+            where_raw=where
+        )
+        
         # 构建SQL
-        sql, params, table_name = QueryBuilder.build_sql(parsed_filters, sm)
+        sql, params, table_name = QueryBuilder.build_sql(config, sm)
         
         if not sql:
             click.secho("无法构建SQL查询。", fg='red')
             return
-        
-        # 添加LIMIT
-        sql += f" LIMIT ?"
-        params.append(limit)
         
         # 显示SQL（如果verbose）
         if verbose:
@@ -412,6 +632,14 @@ def create_query_cmd(db_path: str,
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
+            if count:
+                # 修改SQL为COUNT查询
+                count_sql = re.sub(r'SELECT\s+.*?\s+FROM', 'SELECT COUNT(*) as count FROM', sql, count=1)
+                cursor.execute(count_sql, params)
+                result = cursor.fetchone()
+                click.echo(result['count'])
+                return
+            
             cursor.execute(sql, params)
             results = cursor.fetchall()
             
@@ -420,45 +648,18 @@ def create_query_cmd(db_path: str,
                 return
             
             # 格式化输出
-            if output == 'json':
-                for row in results:
-                    click.echo(json.dumps(dict(row), ensure_ascii=False))
+            output_text = OutputFormatter.format_results(results, output, list(field))
+            if output_text:
+                click.echo(output_text)
             
-            elif output == 'csv':
-                if results:
-                    # 输出CSV
-                    headers = results[0].keys()
-                    click.echo(','.join(headers))
-                    for row in results:
-                        click.echo(','.join(str(v) for v in row))
-            
-            elif output == 'table':
-                if results:
-                    headers = results[0].keys()
-                    # 计算列宽
-                    col_widths = {h: len(h) for h in headers}
-                    rows_data = []
-                    for row in results:
-                        row_dict = dict(row)
-                        rows_data.append(row_dict)
-                        for h in headers:
-                            val = str(row_dict[h])
-                            col_widths[h] = max(col_widths[h], len(val))
-                    
-                    # 打印表头
-                    header_line = ' | '.join(h.ljust(col_widths[h]) for h in headers)
-                    click.echo(header_line)
-                    click.echo('-' * len(header_line))
-                    
-                    # 打印行
-                    for row_dict in rows_data:
-                        row_line = ' | '.join(str(row_dict[h]).ljust(col_widths[h]) for h in headers)
-                        click.echo(row_line)
-            
-            click.secho(f"\n找到 {len(results)} 条结果", fg='green', dim=True)
+            if output != 'ndjson':  # ndjson 已经是一行一条
+                click.secho(f"\n找到 {len(results)} 条结果", fg='green', dim=True)
             
         except sqlite3.Error as e:
             click.secho(f"数据库错误: {e}", fg='red')
+            if verbose:
+                click.secho(f"SQL: {sql}", fg='red', dim=True)
+                click.secho(f"参数: {params}", fg='red', dim=True)
         finally:
             if conn:
                 conn.close()
