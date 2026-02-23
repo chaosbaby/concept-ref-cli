@@ -194,15 +194,34 @@ from typing import Tuple, List, Any, Optional
 def convert_date_to_timestamp(date_str: str) -> str:
     """
     将日期字符串转换为 Unix 时间戳。
-    支持的格式: YYYY-MM-DD, YYYYMMDD
-    如果输入不是纯日期格式，原样返回。
+    支持的格式: 
+      - YYYY-MM-DD (2026-01-01)
+      - YYYYMMDD (20260101)
+      - YYYY- (2026-) -> 自动补全为 YYYY-01-01
+      - YYYY (2026) -> 自动补全为 YYYY-01-01
+    如果输入不是日期格式，原样返回。
     """
     if not isinstance(date_str, str):
         return date_str
     
     date_str = date_str.strip()
     
-    # 严格匹配：必须是纯日期格式，不能包含小数点或其他字符
+    # 处理 YYYY- 格式 (如 2026-)
+    if re.match(r'^\d{4}-$', date_str):
+        # 补全为 YYYY-01-01
+        date_str = f"{date_str}01-01"
+    
+    # 处理 YYYY 格式 (如 2026)
+    elif re.match(r'^\d{4}$', date_str):
+        # 补全为 YYYY-01-01
+        date_str = f"{date_str}-01-01"
+    
+    # 处理 YYYY-MM 格式 (如 2026-01)
+    elif re.match(r'^\d{4}-\d{2}$', date_str):
+        # 补全为 YYYY-MM-01
+        date_str = f"{date_str}-01"
+    
+    # 严格匹配：必须是纯日期格式
     date_patterns = [
         (r'^\d{4}-\d{2}-\d{2}$', '%Y-%m-%d'),  # 2026-01-01
         (r'^\d{4}\d{2}\d{2}$', '%Y%m%d'),      # 20260101
@@ -219,7 +238,7 @@ def convert_date_to_timestamp(date_str: str) -> str:
                 # 解析失败，返回原值
                 pass
     
-    # 不是纯日期格式，原样返回
+    # 不是日期格式，原样返回
     return date_str
 
 
