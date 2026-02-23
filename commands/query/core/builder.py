@@ -29,6 +29,14 @@ class QueryBuilder:
     def _get_op_sql(filt: Filter) -> Tuple[str, List[Any]]:
         col, op, val = filt.column, filt.op, filt.value
         
+        # 检查是否是 NOT 操作符
+        is_not = False
+        actual_op = op
+        
+        if op.startswith('not:'):
+            is_not = True
+            actual_op = op[4:]  # 去掉 'not:' 前缀
+        
         def cast_if_numeric(column_name: str, target_type: str = "REAL") -> str:
             return f"CAST({column_name} AS {target_type})"
 
@@ -45,19 +53,23 @@ class QueryBuilder:
                 return converted
             return value
 
-        if op == 'is': 
+        # 根据实际操作符生成 SQL
+        if actual_op == 'is': 
             processed_val = process_value(val, filt.column_type)
             # 对于数字类型，确保转换为合适的类型
             if filt.column_type in ['integer', 'real']:
                 try:
                     num_val = float(processed_val)
-                    return (f"{cast_if_numeric(col)} = ?", [num_val])
+                    sql = f"{cast_if_numeric(col)} {'!=' if is_not else '='} ?"
+                    return (sql, [num_val])
                 except ValueError:
                     # 如果转换失败，使用原始字符串
-                    return (f"{col} = ?", [processed_val])
-            return (f"{col} = ?", [processed_val])
+                    sql = f"{col} {'!=' if is_not else '='} ?"
+                    return (sql, [processed_val])
+            sql = f"{col} {'!=' if is_not else '='} ?"
+            return (sql, [processed_val])
         
-        if op == 'in':
+        if actual_op == 'in':
             vals = val.split(',')
             processed_vals = [process_value(v, filt.column_type) for v in vals]
             
@@ -68,15 +80,17 @@ class QueryBuilder:
                         try:
                             casted_vals.append(float(v))
                         except ValueError:
-                            # 如果某个值转换失败，使用原始字符串
                             casted_vals.append(v)
-                    return (f"{cast_if_numeric(col)} IN ({','.join('?' for _ in casted_vals)})", casted_vals)
+                    not_prefix = "NOT " if is_not else ""
+                    return (f"{cast_if_numeric(col)} {not_prefix}IN ({','.join('?' for _ in casted_vals)})", casted_vals)
                 except Exception:
-                    return (f"{col} IN ({','.join('?' for _ in processed_vals)})", processed_vals)
-            return (f"{col} IN ({','.join('?' for _ in processed_vals)})", processed_vals)
+                    not_prefix = "NOT " if is_not else ""
+                    return (f"{col} {not_prefix}IN ({','.join('?' for _ in processed_vals)})", processed_vals)
+            not_prefix = "NOT " if is_not else ""
+            return (f"{col} {not_prefix}IN ({','.join('?' for _ in processed_vals)})", processed_vals)
 
         if filt.column_type in ['integer', 'real']:
-            if op in ['gt', 'gte', 'lt', 'lte']:
+            if actual_op in ['gt', 'gte', 'lt', 'lte']:
                 processed_val = process_value(val, filt.column_type)
                 try:
                     num_val = float(processed_val)
@@ -84,52 +98,90 @@ class QueryBuilder:
                         'gt': '>', 'gte': '>=', 
                         'lt': '<', 'lte': '<='
                     }
-                    return (f"{cast_if_numeric(col)} {op_map[op]} ?", [num_val])
+                    sql_op = op_map[actual_op]
+                    if is_not:
+                        # 对于比较操作符，NOT > 相当于 <=，等等
+                        not_map = {
+                            '>': '<=',
+                            '>=': '<',
+                            '<': '>=',
+                            '<=': '>'
+                        }
+                        sql_op = not_map[sql_op]
+                    return (f"{cast_if_numeric(col)} {sql_op} ?", [num_val])
                 except ValueError:
                     # 如果转换失败，返回错误信息
                     raise ValueError(f"Invalid numeric value for '{op}' operator: {val} (converted: {processed_val})")
             
-            if op == 'between':
+            if actual_op == 'between':
                 v_start, v_end = val.split(',', 1)
                 processed_start = process_value(v_start, filt.column_type)
                 processed_end = process_value(v_end, filt.column_type)
                 try:
-                    return (f"{cast_if_numeric(col)} BETWEEN ? AND ?", [float(processed_start), float(processed_end)])
+                    if is_not:
+                        # NOT BETWEEN 转换为 (col < ? OR col > ?)
+                        return (f"({cast_if_numeric(col)} < ? OR {cast_if_numeric(col)} > ?)", 
+                            [float(processed_start), float(processed_end)])
+                    else:
+                        return (f"{cast_if_numeric(col)} BETWEEN ? AND ?", 
+                            [float(processed_start), float(processed_end)])
                 except ValueError:
                     raise ValueError(f"Invalid numeric values for 'between' operator: {v_start}, {v_end}")
 
-        # 其他类型的处理保持不变...
+        # 其他类型的处理...
         if filt.column_type == 'string':
-            if op == 'contains': 
-                return (f"{col} LIKE ?", [f"%{val}%"])
-            if op == 'startswith': 
-                return (f"{col} LIKE ?", [f"{val}%"])
-            if op == 'endswith': 
-                return (f"{col} LIKE ?", [f"%{val}"])
-            if op == 'regex': 
+            if actual_op == 'contains': 
+                sql = f"{col} {'NOT' if is_not else ''} LIKE ?"
+                return (sql.strip(), [f"%{val}%"])
+            if actual_op == 'startswith': 
+                sql = f"{col} {'NOT' if is_not else ''} LIKE ?"
+                return (sql.strip(), [f"{val}%"])
+            if actual_op == 'endswith': 
+                sql = f"{col} {'NOT' if is_not else ''} LIKE ?"
+                return (sql.strip(), [f"%{val}"])
+            if actual_op == 'regex': 
+                # SQLite 没有直接的 NOT REGEXP，需要组合
+                if is_not:
+                    return (f"NOT ({col} REGEXP ?)", [val])
                 return (f"{col} REGEXP ?", [val])
-            if op == 'length_is': 
-                return (f"LENGTH({col}) = ?", [int(val)])
-            if op == 'length_gt': 
+            if actual_op == 'length_is': 
+                op_symbol = '!=' if is_not else '='
+                return (f"LENGTH({col}) {op_symbol} ?", [int(val)])
+            if actual_op == 'length_gt': 
+                if is_not:
+                    return (f"LENGTH({col}) <= ?", [int(val)])
                 return (f"LENGTH({col}) > ?", [int(val)])
-            if op == 'length_lt': 
+            if actual_op == 'length_lt': 
+                if is_not:
+                    return (f"LENGTH({col}) >= ?", [int(val)])
                 return (f"LENGTH({col}) < ?", [int(val)])
 
         if filt.column_type == 'boolean':
             bool_val = 1 if str(val).lower() in ['true', '1', 'yes', 'y', 't'] else 0
-            if op == 'is':
+            if actual_op == 'is':
+                if is_not:
+                    return (f"{col} != ?", [bool_val])
                 return (f"{col} = ?", [bool_val])
-            if op == 'is_not':
+            if actual_op == 'is_not':  # 已经包含 NOT
                 return (f"{col} != ?", [bool_val])
         
         if filt.column_type == 'datetime':
-            if op == 'after':
-                return (f"{col} > ?", [val])
-            if op == 'before':
-                return (f"{col} < ?", [val])
-            if op == 'on':
+            if actual_op == 'after':
+                op_symbol = '<=' if is_not else '>'
+                return (f"{col} {op_symbol} ?", [val])
+            if actual_op == 'before':
+                op_symbol = '>=' if is_not else '<'
+                return (f"{col} {op_symbol} ?", [val])
+            if actual_op == 'on':
+                if is_not:
+                    return (f"DATE({col}) != DATE(?)", [val])
                 return (f"DATE({col}) = DATE(?)", [val])
-            
+            if actual_op == 'between':
+                v_start, v_end = val.split(',', 1)
+                if is_not:
+                    return (f"(DATE({col}) < DATE(?) OR DATE({col}) > DATE(?))", [v_start, v_end])
+                return (f"DATE({col}) BETWEEN DATE(?) AND DATE(?)", [v_start, v_end])
+                
         raise NotImplementedError(f"Operator '{op}' not implemented for type '{filt.column_type}'")
 
     @staticmethod

@@ -27,31 +27,59 @@ def create_table_command(db_path: str,
     # 生成帮助文本
     if help_text is None:
         help_text = f"""
-查询 {table_name} 表。
+    查询 {table_name} 表。
 
-过滤器格式: column:op:value
+    过滤器格式: column:op:value 或 column:not:op:value
 
-示例:
-  {table_name} term:contains:爱情
-  {table_name} freq:gt:100 --limit 5 --sort-by freq --sort-dir desc
+    示例:
+    {table_name} term:contains:爱情
+    {table_name} term:not:contains:爱情  # 不包含"爱情"
+    {table_name} freq:gt:100 --limit 5 --sort-by freq --sort-dir desc
+    {table_name} freq:not:gt:100  # 不大于100
 
-特殊功能 - 从标准输入读取过滤器值:
-  使用 '-' 作为过滤器值的一部分，可以从标准输入读取实际值。
-  每行输入会生成一个独立的查询。
+    特殊功能 - 从标准输入读取过滤器值:
+    使用 '-' 作为过滤器值的一部分，可以从标准输入读取实际值。
+    每行输入会生成一个独立的查询。
 
-  示例:
-    # 为每个词条执行查询
-    echo -e "爱情\n友谊\n人生" | {table_name} term:is:-
+    示例:
+        # 为每个词条执行查询
+        echo -e "爱情\n友谊\n人生" | {table_name} term:is:-
 
-    # 组合多个过滤器
-    echo -e "爱情,100\n友谊,50" | {table_name} term:is:- freq:is:-
+        # 组合多个过滤器
+        echo -e "爱情,100\n友谊,50" | {table_name} term:is:- freq:is:-
 
-操作符说明:
-  字符串: is, contains, startswith, endswith, regex, length_is, length_gt, length_lt, in
-  数字: is, gt, gte, lt, lte, between, in
-  日期: after, before, between, last, next, on
-  布尔: is, is_not
-"""
+    操作符说明:
+    所有操作符都可以在前面加上 "not:" 来取反，例如：not:contains, not:gt, not:in
+
+    字符串: 
+        is, not:is
+        contains, not:contains
+        startswith, not:startswith
+        endswith, not:endswith
+        regex, not:regex
+        length_is, not:length_is
+        length_gt, not:length_gt
+        length_lt, not:length_lt
+        in, not:in
+
+    数字: 
+        is, not:is
+        gt, not:gt
+        gte, not:gte
+        lt, not:lt
+        lte, not:lte
+        between, not:between
+        in, not:in
+
+    日期: 
+        after, not:after
+        before, not:before
+        between, not:between
+        last, next, on, not:on
+
+    布尔: 
+        is, is_not
+    """
     
     # 创建补全函数
     def sort_by_completer(ctx, param, incomplete):
@@ -61,7 +89,7 @@ def create_table_command(db_path: str,
             for col in schema_manager.get_columns(table_name)
             if col.startswith(incomplete)
         ]
-    
+
     def filter_completer(ctx, param, incomplete):
         """补全过滤器"""
         parts = incomplete.split(':', 2)
@@ -83,13 +111,30 @@ def create_table_command(db_path: str,
             if schema_manager.column_exists(table_name, current_column):
                 simple_type = schema_manager.get_simple_type(table_name, current_column)
                 if simple_type in FIELD_TYPES:
-                    return [
-                        CompletionItem(f"{current_column}:{op}:") 
-                        for op in FIELD_TYPES[simple_type]['operators'] 
-                        if op.startswith(current_op)
-                    ]
+                    # 获取所有可用的操作符
+                    operators = FIELD_TYPES[simple_type]['operators']
+                    
+                    # 先显示普通操作符，再显示 NOT 版本
+                    suggestions = []
+                    for op in operators:
+                        if op.startswith('not:'):
+                            # NOT 版本的操作符，在输入 'not' 时显示
+                            if current_op.lower() == 'not' or op.startswith(current_op):
+                                suggestions.append(CompletionItem(f"{current_column}:{op}:"))
+                        else:
+                            # 普通操作符
+                            if op.startswith(current_op):
+                                suggestions.append(CompletionItem(f"{current_column}:{op}:"))
+                    
+                    # 如果只输入了 'n'，也要显示 not: 开头的操作符
+                    if current_op.lower() == 'n':
+                        for op in operators:
+                            if op.startswith('not:'):
+                                suggestions.append(CompletionItem(f"{current_column}:{op}:"))
+                    
+                    return suggestions
         
-        return []
+        return [] 
     
     @click.command(name=table_name, help=help_text, epilog="提示: 在过滤器值中使用 '-' 可以从标准输入读取实际值")
     @click.argument('filters', nargs=-1, required=False, shell_complete=filter_completer)
@@ -140,31 +185,54 @@ def create_table_command(db_path: str,
         # 解析过滤器模板
         filter_templates = []
         stdin_positions = []  # 记录哪些位置需要从stdin读取值
-        
+
         for i, filter_str in enumerate(filters):
-            # 格式是 column:op:value
-            parts = filter_str.split(':', 2)
-            if len(parts) < 3:
-                click.secho(f"无效的过滤器格式: {filter_str} (应为 column:op:value)", fg='red')
+            # 格式可能是 column:op:value 或 column:not:op:value
+            # 所以需要先按 ':' 分割，然后判断有几个部分
+            parts = filter_str.split(':')
+            
+            if len(parts) == 3:
+                # 格式: column:op:value
+                column, op, value = parts
+            elif len(parts) == 4 and parts[1] == 'not':
+                # 格式: column:not:op:value
+                column, not_prefix, op, value = parts
+                op = f"not:{op}"  # 组合成完整的操作符
+            else:
+                click.secho(f"无效的过滤器格式: {filter_str}", fg='red')
+                click.secho("应为 column:op:value 或 column:not:op:value", fg='yellow')
                 return
-            column, op, value = parts
             
             # 验证列是否存在
             if not schema_manager.column_exists(table_name, column):
                 click.secho(f"列不存在: {table_name}.{column}", fg='red')
                 return
             
+            # 获取列类型
+            simple_type = schema_manager.get_simple_type(table_name, column)
+            
+            # 检查操作符是否有效
+            if simple_type not in FIELD_TYPES:
+                click.secho(f"错误: 未知的列类型 '{simple_type}'", fg='red')
+                return
+            
+            valid_ops = FIELD_TYPES[simple_type]['operators']
+            
             # 检查值是否为 stdin 占位符
             if value == '-':
+                # 验证操作符是否有效
+                if op not in valid_ops:
+                    click.secho(f"无效的操作符 '{op}' 对于类型 '{simple_type}'", fg='red')
+                    click.secho(f"可用的操作符: {', '.join(valid_ops)}", fg='yellow')
+                    return
                 stdin_positions.append((i, filter_str, column, op))
             else:
                 # 验证操作符是否有效
-                simple_type = schema_manager.get_simple_type(table_name, column)
-                if op not in FIELD_TYPES.get(simple_type, {}).get('operators', []):
+                if op not in valid_ops:
                     click.secho(f"无效的操作符 '{op}' 对于类型 '{simple_type}'", fg='red')
+                    click.secho(f"可用的操作符: {', '.join(valid_ops)}", fg='yellow')
                     return
                 filter_templates.append((i, filter_str, column, op, value))
-        
         # 如果没有需要从stdin读取的值，直接执行单次查询
         if not stdin_positions:
             parsed_filters = []
