@@ -611,5 +611,17 @@ def init(poetry_dir):
     conn.commit(); conn.close()
     click.echo("初始化圆满完成！")
 
+try:
+    from commands.query import create_query_cmd, create_commands_from_config
+    lexicon_cmd = create_query_cmd(
+        db_path=DB_PATH,
+        table_prefix="",
+        cmd_name="query",  # 可选，默认从文件名生成
+        help_text="查询诗词金典数据库"
+    )
+    cli.add_command(lexicon_cmd)
+except ImportError as e:
+    click.secho(f"Warning: Could not load 'query' command: {e}", fg='yellow')
+
 if __name__ == '__main__':
     cli()

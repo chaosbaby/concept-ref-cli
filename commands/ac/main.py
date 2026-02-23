@@ -319,5 +319,17 @@ def _load_dynamic_commands():
 
 _load_dynamic_commands()
 
+try:
+    from commands.query import create_query_cmd, create_commands_from_config
+    lexicon_cmd = create_query_cmd(
+        db_path=DB_PATH,
+        table_prefix="",
+        cmd_name="query",  # 可选，默认从文件名生成
+        help_text="ai chat dialogue query command"
+    )
+    cli.add_command(lexicon_cmd)
+
+except ImportError as e:
+    click.secho(f"Warning: Could not load 'query' command: {e}", fg='yellow')
 if __name__ == '__main__':
     cli()
