@@ -10,7 +10,6 @@ from .cli import (
     create_table_commands,
     create_query_cmd,
     create_commands_from_config,
-    create_multi_table_command,
     quick_command
 )
 
@@ -19,6 +18,5 @@ __all__ = [
     "create_table_commands",
     "create_query_cmd", 
     "create_commands_from_config",
-    "create_multi_table_command",
     "quick_command"
 ]

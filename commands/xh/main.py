@@ -495,5 +495,18 @@ def config_get(key):
 
 cli.add_command(config_cmd, name='config')
 
+try:
+    from commands.query import create_query_cmd
+    cmd = create_query_cmd(
+        db_path=DB_PATH,
+        table_prefix="",
+        tables=['idiom', 'ci', 'word', 'xiehouyu'],
+        help_text="查询词典数据库",
+        cache_values=True
+    )
+    cli.add_command(cmd)
+except ImportError as e:
+    click.secho(f"Warning: Could not load 'query' command: {e}", fg='yellow')
+
 if __name__ == '__main__':
     cli()

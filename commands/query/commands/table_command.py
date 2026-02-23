@@ -15,7 +15,7 @@ from ..core.filters import FilterParser, Filter
 from ..core.builder import QueryBuilder, QueryConfig
 from ..core.formatter import OutputFormatter
 from ..utils.constants import FIELD_TYPES
-LIMIT = 200  # 默认查询限制数量
+LIMIT = 20000  # 默认查询限制数量
 
 def create_table_command(db_path: str, 
                         table_name: str,
