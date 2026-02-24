@@ -29,6 +29,8 @@ def find_commands():
                     cmd_name = "lxc"
                 elif module_name == "cp":
                     cmd_name = "cpt"
+                elif module_name == "common":
+                    cmd_name = "cm"
                 else:
                     cmd_name = module_name
                 
