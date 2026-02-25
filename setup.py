@@ -41,7 +41,7 @@ setup(
     name="concept-ref-cli",
     version="0.1.0",
     packages=find_packages(),
-    install_requires=["click", "zhconv"],
+    install_requires=["click", "zhconv", "rich"],
     entry_points={
         "console_scripts": [
             f"{k}={v}" for k, v in find_commands().items()
